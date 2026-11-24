@@ -49,16 +49,18 @@ class TestProductsPage(GuiTestCase):
         self.assertEqual(len(rows), 12)
         self.assertEqual(rows["M001"]["Detail"], "Shade: 240")
         self.assertEqual(rows["B002"]["Detail"], "Size (ml): 100")
-        self.assertEqual(rows["B003"]["Status"], "Low stock")
+        self.assertEqual(rows["F002"]["Status"], "Below PAR: order 4")     # stock 4, PAR 8
+        self.assertEqual(rows["F001"]["Status"], "OK")
 
-    def test_filters_by_category_brand_and_low_stock(self):
+    def test_filters_by_category_brand_and_below_par(self):
         ui, _ = self.show("Products", {"filter_category": ["body"]})
         self.assertEqual([r["ID"] for r in ui.texts("dataframe")[0]], ["B001", "B002", "B003"])
         ui, _ = self.show("Products", {"filter_brand": ["Dior"]})
         self.assertEqual([r["ID"] for r in ui.texts("dataframe")[0]], ["M003", "B002"])
-        ui, _ = self.show("Products", {"filter_low": True})
-        self.assertEqual([r["ID"] for r in ui.texts("dataframe")[0]], ["F002", "M002", "H002", "B003"])
-        self.assertIn(("Low stock", 4), ui.texts("metric"))
+        ui, _ = self.show("Products", {"filter_below_par": True})
+        self.assertEqual([r["ID"] for r in ui.texts("dataframe")[0]],
+                         ["F002", "F003", "M002", "M003", "H002", "B002", "B003"])
+        self.assertIn(("Below PAR", 7), ui.texts("metric"))
 
 
 class TestAddProduct(GuiTestCase):
@@ -66,11 +68,14 @@ class TestAddProduct(GuiTestCase):
     def test_adds_a_makeup_product_with_an_existing_brand(self):
         _, rerun = self.show("Add product", {"add_category": "makeup", "add_id": "M010",
                                              "add_name": "Gloss Bomb", "add_brand": "Fenty Beauty",
-                                             "add_price": 30.0, "add_stock": 20, "add_shade": "Fenty Glow"},
+                                             "add_price": 30.0, "add_stock": 20, "add_par": 25,
+                                             "add_shade": "Fenty Glow"},
                              clicks={"add_button"})
         self.assertTrue(rerun)
         product = self.inventory().find_product("m010")
         self.assertEqual(product.get_detail(), "Fenty Glow")
+        self.assertEqual(product.get_par_level(), 25)
+        self.assertTrue(product.is_below_par())
         # The brand object is shared with Fenty's other products, not copied.
         self.assertIs(product.get_brand(), self.inventory().find_product("M001").get_brand())
         self.assertTrue(self.state["unsaved"])
@@ -99,9 +104,12 @@ class TestAddProduct(GuiTestCase):
 
 class TestStockAndRemove(GuiTestCase):
 
-    def test_update_stock(self):
-        self.show("Update stock", {"stock_product": "B003", "stock_B003": 42}, clicks={"stock_button"})
-        self.assertEqual(self.inventory().find_product("B003").get_stock(), 42)
+    def test_update_stock_and_par(self):
+        self.show("Update stock & PAR", {"stock_product": "B003", "stock_B003": 4, "par_B003": 12},
+                  clicks={"stock_button"})
+        product = self.inventory().find_product("B003")
+        self.assertEqual((product.get_stock(), product.get_par_level()), (4, 12))
+        self.assertIn("Still below PAR: order 8.", self.state["flash"])
 
     def test_remove_needs_the_tick_box(self):
         self.show("Remove product", {"remove_product": "H002"}, clicks={"remove_button"})
@@ -118,7 +126,8 @@ class TestSearch(GuiTestCase):
         details = {row["Detail"]: row["Value"] for row in ui.texts("dataframe")[0]}
         self.assertEqual(details["Skin type"], "Dry")
         self.assertEqual(details["Brand"], "Drunk Elephant (USA)")
-        self.assertEqual(details["Stock"], "4 (low stock, reorder)")
+        self.assertEqual(details["Stock"], "4 (PAR 8)")
+        self.assertEqual(details["Restock"], "Below PAR: order 4")
         self.assertIn("dry skin", details["Tip"])
 
     def test_by_brand_or_name_lists_matches(self):
@@ -126,6 +135,32 @@ class TestSearch(GuiTestCase):
         self.assertEqual([r["ID"] for r in ui.texts("dataframe")[0]], ["M003", "B002"])
         ui, _ = self.show("Search product", {"search_text": "X999"})
         self.assertIn("Product not found.", ui.texts("warning"))
+
+
+class TestRestockList(GuiTestCase):
+
+    def test_lists_products_below_par_grouped_by_brand(self):
+        ui, _ = self.show("Restock list")
+        metrics = dict(ui.texts("metric"))
+        self.assertEqual(metrics["Products to restock"], 7)
+        self.assertEqual(metrics["Units to order"], 24)          # 4+1+7+1+5+2+4
+        brands = [text.split("**")[1] for text in ui.texts("markdown")]
+        self.assertEqual(brands, ["Dior", "Drunk Elephant", "OUAI", "Rare Beauty", "Sol de Janeiro"])
+        dior = ui.texts("dataframe")[0]
+        self.assertEqual([(r["ID"], r["Stock"], r["PAR"], r["Order"]) for r in dior],
+                         [("B002", 6, 8, 2), ("M003", 11, 12, 1)])
+        file_name, csv_text = ui.texts("download")[0]
+        self.assertEqual(file_name, "restock_list.csv")
+        self.assertIn("Rare Beauty,M002,Soft Pinch Liquid Blush,Makeup,Joy,3,10,7", csv_text)
+
+    def test_mark_as_restocked_needs_the_tick_box(self):
+        self.show("Restock list", clicks={"restock_button"})
+        self.assertEqual(len(self.inventory().get_products_below_par()), 7)
+        self.show("Restock list", {"restock_sure": True}, clicks={"restock_button"})
+        self.assertEqual(self.inventory().get_products_below_par(), [])
+        self.assertEqual(self.inventory().find_product("M002").get_stock(), 10)
+        ui, _ = self.show("Restock list")
+        self.assertIn("Every product is at or above PAR. Nothing to restock.", ui.texts("success"))
 
 
 class TestOrder(GuiTestCase):
@@ -157,13 +192,14 @@ class TestImportAndSave(GuiTestCase):
         self.assertIs(product.get_brand(), self.inventory().find_product("B002").get_brand())
 
     def test_save_writes_the_json_file(self):
-        self.show("Update stock", {"stock_product": "F001", "stock_F001": 3}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 3}, clicks={"stock_button"})
         self.assertTrue(self.state["unsaved"])
         self.show("Products", clicks={"save"})
         self.assertFalse(self.state["unsaved"])
         with open(self.path) as file:
             saved = {item["id"]: item for item in json.load(file)}
         self.assertEqual(saved["F001"]["stock"], 3)
+        self.assertEqual(saved["F001"]["par"], 15)
         self.assertEqual(saved["F001"]["brand"], {"name": "Laneige", "country": "South Korea"})
 
 

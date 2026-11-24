@@ -14,21 +14,36 @@ Products belong to one of four categories, and each category has its own extra d
 | Body & fragrance | `BodyProduct` | size in ml |
 
 Every product also has a **brand** (e.g. Fenty Beauty, Dior). Products of the
-same brand share one `Brand` object. A product with 5 or fewer in stock is
-marked **Low stock**.
+same brand share one `Brand` object.
+
+## PAR levels and the restock list
+
+Each product has a **PAR level**: the stock the store wants to keep on the shelf
+(10 if none is given). When the stock falls below PAR, the product is marked
+**Below PAR** and goes on the **restock list**, which shows how many to order to
+get back to PAR:
+
+```
+order = PAR - stock      (never less than 0)
+```
+
+The restock list is grouped by brand, so each brand's order can be placed in one
+go. It can be downloaded as a CSV file, and **Mark as restocked** sets every listed
+product back to its PAR level when the delivery arrives.
 
 ## Pages
 
 | Page | What it does | Terminal menu option |
 |---|---|---|
-| Products | Table of products; filter by category, brand or low stock | 1 |
-| Add product | Pick a category, brand (existing or new) and the category's detail | 2 |
+| Products | Table with stock, PAR and status; filter by category, brand or below PAR | 1 |
+| Restock list | Products below PAR, grouped by brand, with the amount to order | 8 |
+| Add product | Pick a category, brand (existing or new), PAR level and the category's detail | 2 |
+| Update stock & PAR | Set a new stock level and PAR level | 4 |
 | Remove product | Needs a tick to confirm | 3 |
-| Update stock | Set a new stock level | 4 |
-| Search product | By ID, name or brand; shows the detail and a tip for staff | 5 |
+| Search product | By ID, name or brand; shows the detail, PAR and a tip for staff | 5 |
 | Create order | Add lines, pick a discount, see subtotal and total | 6 |
 | Import from CSV | Upload a file or use `products.csv` | 7 |
-| **Save inventory** (sidebar) | Writes to `inventory.json` or MongoDB | 8 |
+| **Save inventory** (sidebar) | Writes to `inventory.json` or MongoDB | 9 |
 
 Changes are kept while the browser tab is open. Click **Save inventory** to keep
 them; the sidebar warns you when there are unsaved changes.
@@ -76,13 +91,14 @@ Then open http://localhost:8501. The build runs the tests first. Leave out
 ## CSV import format
 
 ```
-category,product_id,name,brand,price,stock_quantity,detail
-face,F010,Water Cream,Tatcha,98.00,12,Dry
-body,B010,Bum Bum Cream,Sol de Janeiro,65.00,3,240
+category,product_id,name,brand,price,stock_quantity,detail,par
+face,F010,Water Cream,Tatcha,98.00,12,Dry,10
+body,B010,Bum Bum Cream,Sol de Janeiro,65.00,3,240,8
 ```
 
 `category` is `face`, `makeup`, `hair` or `body`, and `detail` is that category's
-skin type, shade, hair type or size in ml. Bad rows are reported and skipped;
+skin type, shade, hair type or size in ml. The `par` column is optional; rows
+without it get a PAR level of 10. Bad rows are reported and skipped;
 the sample `products.csv` includes some on purpose.
 
 ## Tests
@@ -93,7 +109,7 @@ python3 -m unittest discover -s tests
 
 | File | What it tests |
 |---|---|
-| `test_products.py` | the category classes, validation, polymorphism and the shared Brand |
+| `test_products.py` | the category classes, validation, polymorphism, the shared Brand and PAR levels |
 | `test_factory.py` | the Factory pattern |
 | `test_discounts.py` | the Strategy pattern |
 | `test_error_handling.py` | input checks and CSV import |
@@ -107,7 +123,7 @@ Every test works on a temporary copy of `inventory.json`, and none connects to t
 ```
 streamlit_app.py      the GUI (InventoryGui class, one method per page)
 main.py               the terminal menu
-product.py            abstract Product (ID, name, price, stock, brand)
+product.py            abstract Product (ID, name, price, stock, PAR level, brand)
 face_product.py, makeup_product.py, hair_product.py, body_product.py
 brand.py              Brand (shared by its products)
 product_factory.py    Factory pattern: builds the right category class

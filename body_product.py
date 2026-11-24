@@ -1,5 +1,5 @@
 from brand import Brand
-from product import Product
+from product import Product, DEFAULT_PAR_LEVEL
 
 TRAVEL_SIZE_ML = 100       # liquids up to 100 ml can go in cabin baggage
 
@@ -11,8 +11,8 @@ class BodyProduct(Product):
     CATEGORY_NAME = "Body & fragrance"
 
     def __init__(self, product_id: str, name: str, price: float, stock: int, brand: Brand,
-                 size_ml: float = 0.0):
-        super().__init__(product_id, name, price, stock, brand)
+                 size_ml: float = 0.0, par_level: int = DEFAULT_PAR_LEVEL):
+        super().__init__(product_id, name, price, stock, brand, par_level)
         size_ml = float(size_ml)
         if size_ml <= 0:
             raise ValueError("Size must be greater than 0 ml.")

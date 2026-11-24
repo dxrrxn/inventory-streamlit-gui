@@ -10,8 +10,8 @@ from main import get_positive_float
 from inventory import Inventory
 from file_handler import load_products
 
-PRODUCTS_CSV = """category,product_id,name,brand,price,stock_quantity,detail
-face,F001,Water Cream,Tatcha,98.00,12,Dry
+PRODUCTS_CSV = """category,product_id,name,brand,price,stock_quantity,detail,par
+face,F001,Water Cream,Tatcha,98.00,12,Dry,20
 makeup,M001,Gloss Bomb,Fenty Beauty,30.00,20,Fenty Glow
 nails,N001,Nail Polish,Sephora Collection,12.00,30,Red
 face,F002,Toner,Glow Recipe,abc,8,Normal
@@ -55,6 +55,8 @@ class TestLoadProducts(unittest.TestCase):
         inventory, lines = self.run_load(self.path)
         ids = [p.get_product_id() for p in inventory.get_products()]
         self.assertEqual(ids, ["F001", "M001", "B001"])
+        self.assertEqual(inventory.find_product("F001").get_par_level(), 20)     # from the par column
+        self.assertEqual(inventory.find_product("M001").get_par_level(), 10)     # no par: the default
         self.assertEqual(lines, [
             "Row 4 skipped: Unknown category: nails",
             "Row 5 skipped: could not convert string to float: 'abc'",

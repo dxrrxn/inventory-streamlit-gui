@@ -46,6 +46,13 @@ class TestProductFactory(unittest.TestCase):
         self.assertEqual(first.to_dict(), original.to_dict())
         self.assertIs(first.get_brand(), second.get_brand())
 
+    def test_par_level_is_saved_and_defaults_when_missing(self):
+        product = ProductFactory.create("face", "F1", "Cream", 30, 2, self.brand, "Dry", par_level=12)
+        data = product.to_dict()
+        self.assertEqual(ProductFactory.from_dict(data, {}).get_par_level(), 12)
+        del data["par"]                                  # e.g. a record saved before PAR existed
+        self.assertEqual(ProductFactory.from_dict(data, {}).get_par_level(), 10)
+
     def test_main_and_file_handler_use_the_factory(self):
         for module in (main, file_handler):
             source = inspect.getsource(module)

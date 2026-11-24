@@ -1,5 +1,5 @@
 from brand import Brand
-from product import Product
+from product import Product, DEFAULT_PAR_LEVEL
 
 
 class FaceProduct(Product):
@@ -10,8 +10,8 @@ class FaceProduct(Product):
     SKIN_TYPES = ("All", "Normal", "Dry", "Oily", "Combination", "Sensitive")
 
     def __init__(self, product_id: str, name: str, price: float, stock: int, brand: Brand,
-                 skin_type: str = "All"):
-        super().__init__(product_id, name, price, stock, brand)
+                 skin_type: str = "All", par_level: int = DEFAULT_PAR_LEVEL):
+        super().__init__(product_id, name, price, stock, brand, par_level)
         skin_type = str(skin_type).strip().capitalize()
         if skin_type not in self.SKIN_TYPES:
             raise ValueError(f"Skin type must be one of: {', '.join(self.SKIN_TYPES)}.")

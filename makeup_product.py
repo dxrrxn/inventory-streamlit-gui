@@ -1,5 +1,5 @@
 from brand import Brand
-from product import Product
+from product import Product, DEFAULT_PAR_LEVEL
 
 
 class MakeupProduct(Product):
@@ -9,8 +9,8 @@ class MakeupProduct(Product):
     CATEGORY_NAME = "Makeup"
 
     def __init__(self, product_id: str, name: str, price: float, stock: int, brand: Brand,
-                 shade: str = ""):
-        super().__init__(product_id, name, price, stock, brand)
+                 shade: str = "", par_level: int = DEFAULT_PAR_LEVEL):
+        super().__init__(product_id, name, price, stock, brand, par_level)
         shade = str(shade).strip()
         if not shade:
             raise ValueError("Shade cannot be empty.")

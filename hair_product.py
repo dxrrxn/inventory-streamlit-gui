@@ -1,5 +1,5 @@
 from brand import Brand
-from product import Product
+from product import Product, DEFAULT_PAR_LEVEL
 
 
 class HairProduct(Product):
@@ -10,8 +10,8 @@ class HairProduct(Product):
     HAIR_TYPES = ("All", "Straight", "Wavy", "Curly", "Coily")
 
     def __init__(self, product_id: str, name: str, price: float, stock: int, brand: Brand,
-                 hair_type: str = "All"):
-        super().__init__(product_id, name, price, stock, brand)
+                 hair_type: str = "All", par_level: int = DEFAULT_PAR_LEVEL):
+        super().__init__(product_id, name, price, stock, brand, par_level)
         hair_type = str(hair_type).strip().capitalize()
         if hair_type not in self.HAIR_TYPES:
             raise ValueError(f"Hair type must be one of: {', '.join(self.HAIR_TYPES)}.")

@@ -52,11 +52,28 @@ class TestProducts(unittest.TestCase):
     def test_detail_text_hides_trailing_zero(self):
         self.assertEqual(BodyProduct("B1", "Mist", 30, 5, self.brand, 90).get_detail_text(), "90")
 
-    def test_low_stock(self):
-        product = HairProduct("H1", "Shampoo", 30, 5, self.brand, "All")
-        self.assertTrue(product.is_low_stock())
-        product.update_stock(6)
-        self.assertFalse(product.is_low_stock())
+    def test_par_level_and_restock_quantity(self):
+        product = HairProduct("H1", "Shampoo", 30, 4, self.brand, "All", par_level=10)
+        self.assertTrue(product.is_below_par())
+        self.assertEqual(product.get_restock_quantity(), 6)
+        product.update_stock(10)                       # exactly at PAR: nothing to order
+        self.assertFalse(product.is_below_par())
+        self.assertEqual(product.get_restock_quantity(), 0)
+        product.update_stock(15)                       # above PAR never gives a negative order
+        self.assertEqual(product.get_restock_quantity(), 0)
+        with self.assertRaises(ValueError):
+            product.set_par_level(-1)
+
+    def test_default_par_level(self):
+        self.assertEqual(MakeupProduct("M1", "Lipstick", 30, 5, self.brand, "999").get_par_level(), 10)
+
+    def test_restock_list_is_sorted_by_brand(self):
+        inventory = Inventory()
+        dior = Brand("Dior")
+        inventory.add_product(FaceProduct("F1", "Cream", 30, 9, self.brand, "Dry", par_level=10))
+        inventory.add_product(MakeupProduct("M1", "Lipstick", 30, 1, dior, "999", par_level=5))
+        inventory.add_product(HairProduct("H1", "Oil", 30, 20, dior, "All", par_level=5))   # above PAR
+        self.assertEqual([p.get_product_id() for p in inventory.get_products_below_par()], ["M1", "F1"])
 
     def test_brand_is_shared_not_owned(self):
         first = BodyProduct("B1", "Mist", 39, 22, self.brand, 90)

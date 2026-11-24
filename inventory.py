@@ -53,6 +53,13 @@ class Inventory:
             brands.setdefault(brand.get_name().lower(), brand)
         return brands
 
+    def get_products_below_par(self) -> list[Product]:
+        """The restock list: products whose stock is below their PAR level,
+        sorted by brand so each brand's order can be placed together."""
+        below = [product for product in self.__products if product.is_below_par()]
+        return sorted(below, key=lambda product: (product.get_brand().get_name().lower(),
+                                                  product.get_product_id()))
+
     def get_products(self) -> list[Product]:
         """Return a copy of the product list so outside code can't change the inventory's list."""
         return list(self.__products)

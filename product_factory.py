@@ -3,7 +3,7 @@ from body_product import BodyProduct
 from face_product import FaceProduct
 from hair_product import HairProduct
 from makeup_product import MakeupProduct
-from product import Product
+from product import Product, DEFAULT_PAR_LEVEL
 
 
 class ProductFactory:
@@ -22,12 +22,14 @@ class ProductFactory:
 
     @classmethod
     def create(cls, category: str, product_id: str, name: str, price: float,
-               stock_quantity: int, brand: Brand, detail="") -> Product:
-        """detail is the category's extra value: skin type, shade, hair type or size in ml."""
+               stock_quantity: int, brand: Brand, detail="",
+               par_level: int = DEFAULT_PAR_LEVEL) -> Product:
+        """detail is the category's extra value: skin type, shade, hair type or size in ml.
+        par_level is the stock the store wants to keep on the shelf."""
         product_class = cls.CATEGORIES.get(str(category).strip().lower())
         if product_class is None:
             raise ValueError(f"Unknown category: {category}")
-        return product_class(product_id, name, price, stock_quantity, brand, detail)
+        return product_class(product_id, name, price, stock_quantity, brand, detail, par_level)
 
     @classmethod
     def from_dict(cls, data: dict, brands: dict[str, Brand]) -> Product:
@@ -41,4 +43,5 @@ class ProductFactory:
         if key not in brands:
             brands[key] = Brand(brand_data["name"], brand_data.get("country", ""))
         return cls.create(data["category"], data["id"], data["name"], data["price"],
-                          data["stock"], brands[key], data.get("detail", ""))
+                          data["stock"], brands[key], data.get("detail", ""),
+                          data.get("par", DEFAULT_PAR_LEVEL))

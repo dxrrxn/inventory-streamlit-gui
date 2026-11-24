@@ -151,9 +151,10 @@ def add_product(inventory: Inventory) -> None:
     brand = read_brand(inventory)
     price = get_positive_float("Price: ")
     stock = read_stock("Stock Quantity: ")
+    par_level = read_stock("PAR Level (stock to keep on the shelf): ")
     detail = read_detail(category)
 
-    product = ProductFactory.create(category, product_id, name, price, stock, brand, detail)
+    product = ProductFactory.create(category, product_id, name, price, stock, brand, detail, par_level)
     inventory.add_product(product)
     print("Product added successfully!")
 
@@ -175,9 +176,17 @@ def update_stock(inventory: Inventory) -> None:
         return
     print("Product Found:")
     print(f"Name: {product.get_name()}")
-    print(f"Current Stock: {product.get_stock()}")
+    print(f"Current Stock: {product.get_stock()} (PAR {product.get_par_level()})")
     product.update_stock(read_stock("New Stock Quantity: "))
+    new_par = input(f"New PAR Level (leave blank to keep {product.get_par_level()}): ").strip()
+    if new_par:
+        try:
+            product.set_par_level(int(new_par))
+        except ValueError:
+            print("PAR level must be a whole number from 0 up, so it was not changed.")
     print("Stock updated successfully!")
+    if product.is_below_par():
+        print(f"Still below PAR: order {product.get_restock_quantity()} more.")
 
 
 def search_product(inventory: Inventory) -> None:
@@ -190,8 +199,8 @@ def search_product(inventory: Inventory) -> None:
     print(LINE)
     product.display_information()
     print(product.get_care_tip())             # each category gives its own tip (polymorphism)
-    if product.is_low_stock():
-        print("Low stock: please reorder.")
+    if product.is_below_par():
+        print(f"Below PAR: order {product.get_restock_quantity()} to get back to {product.get_par_level()}.")
     product.get_brand().display_information()
     print(LINE)
 
@@ -221,6 +230,24 @@ def import_products(inventory: Inventory) -> None:
     load_products(path, inventory)
 
 
+def show_restock_list(inventory: Inventory) -> None:
+    """Every product below its PAR level, and how many to order to get back to PAR."""
+    print("Restock List (below PAR)")
+    print(LINE)
+    products = inventory.get_products_below_par()
+    if not products:
+        print("Every product is at or above PAR. Nothing to restock.")
+    for product in products:
+        print(f"{product.get_product_id()} | {product.get_brand().get_name()} {product.get_name()} | "
+              f"Stock {product.get_stock()} / PAR {product.get_par_level()} | "
+              f"Order {product.get_restock_quantity()}")
+    if products:
+        units = sum(product.get_restock_quantity() for product in products)
+        value = sum(product.get_restock_quantity() * product.get_price() for product in products)
+        print(f"Total: {units} units for {len(products)} products (${value:.2f} at retail price)")
+    print(LINE)
+
+
 def print_menu() -> None:
     print("----------- MENU -----------")
     print("1. Display All Products")
@@ -230,8 +257,9 @@ def print_menu() -> None:
     print("5. Search Product")
     print("6. Create Order")
     print("7. Load Products from CSV")
-    print("8. Save Inventory")
-    print("9. Exit")
+    print("8. Restock List (below PAR)")
+    print("9. Save Inventory")
+    print("10. Exit")
     print("----------------------------")
 
 
@@ -254,17 +282,19 @@ def run_menu(inventory: Inventory) -> None:
         elif option == "7":
             import_products(inventory)
         elif option == "8":
+            show_restock_list(inventory)
+        elif option == "9":
             print("Saving inventory...")
             save_inventory(inventory)
             print(f"Inventory saved successfully to {INVENTORY_FILE}.")
-        elif option == "9":
+        elif option == "10":
             print("Saving inventory before exit...")
             save_inventory(inventory)
             print("Inventory saved successfully.")
             print("Program exited.")
             break
         else:
-            print("Invalid option. Please enter a number from 1 to 9.")
+            print("Invalid option. Please enter a number from 1 to 10.")
 
 
 def main() -> None:

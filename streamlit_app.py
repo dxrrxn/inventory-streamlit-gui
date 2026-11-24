@@ -10,6 +10,7 @@ products are kept in inventory.json or in MongoDB (see .env.example).
 """
 from __future__ import annotations
 
+import csv
 import io
 import os
 import tempfile
@@ -23,7 +24,7 @@ from inventory import Inventory
 from inventory_store import InventoryStore
 from main import DISCOUNT_OPTIONS
 from order import Order
-from product import Product, LOW_STOCK_LEVEL
+from product import Product, DEFAULT_PAR_LEVEL
 from product_factory import ProductFactory
 from store_factory import StoreFactory
 
@@ -44,7 +45,7 @@ class InventoryGui:
     created outside (by StoreFactory, or by the tests) and passed in.
     """
 
-    PAGES = ("Products", "Add product", "Update stock", "Remove product",
+    PAGES = ("Products", "Restock list", "Add product", "Update stock & PAR", "Remove product",
              "Search product", "Create order", "Import from CSV")
 
     def __init__(self, ui, store: InventoryStore | None = None):
@@ -110,7 +111,8 @@ class InventoryGui:
                 self.__finish(message, changed=False)
             ui.sidebar.error(message)
 
-        {"Products": self.__products, "Add product": self.__add, "Update stock": self.__update_stock,
+        {"Products": self.__products, "Restock list": self.__restock, "Add product": self.__add,
+         "Update stock & PAR": self.__update_stock,
          "Remove product": self.__remove, "Search product": self.__search,
          "Create order": self.__order, "Import from CSV": self.__import}[page]()
 
@@ -128,16 +130,16 @@ class InventoryGui:
                                        format_func=CATEGORY_NAMES.get, placeholder="All categories")
         brand_names = sorted(brand.get_name() for brand in self.__inventory.get_brands().values())
         brands = second.multiselect("Brand", brand_names, key="filter_brand", placeholder="All brands")
-        low_only = ui.checkbox(f"Only low stock ({LOW_STOCK_LEVEL} or fewer)", key="filter_low")
+        below_only = ui.checkbox("Only products below PAR", key="filter_below_par")
         shown = [product for product in products
                  if (not categories or product.CATEGORY in categories)
                  and (not brands or product.get_brand().get_name() in brands)
-                 and (not low_only or product.is_low_stock())]
+                 and (not below_only or product.is_below_par())]
 
         first, second, third = ui.columns(3)
         first.metric("Products", len(shown))
         second.metric("Stock value", f"${sum(p.get_price() * p.get_stock() for p in shown):,.2f}")
-        third.metric("Low stock", sum(product.is_low_stock() for product in shown))
+        third.metric("Below PAR", sum(product.is_below_par() for product in shown))
         if shown:
             ui.dataframe([self.__row(product) for product in shown], hide_index=True)
         else:
@@ -150,7 +152,66 @@ class InventoryGui:
                 "Name": product.get_name(), "Category": product.CATEGORY_NAME,
                 "Detail": f"{product.get_detail_label()}: {product.get_detail_text()}",
                 "Price": f"${product.get_price():.2f}", "Stock": product.get_stock(),
-                "Status": "Low stock" if product.is_low_stock() else "OK"}
+                "PAR": product.get_par_level(),
+                "Status": (f"Below PAR: order {product.get_restock_quantity()}"
+                           if product.is_below_par() else "OK")}
+
+    # ---------- restock list ----------
+
+    def __restock(self) -> None:
+        """Every product below PAR, grouped by brand, with how many to order."""
+        ui = self.__ui
+        ui.subheader("Restock list")
+        ui.caption("Products whose stock is below their PAR level. Ordering the amount shown "
+                   "brings each one back up to PAR.")
+        products = self.__inventory.get_products_below_par()     # already sorted by brand
+        if not products:
+            ui.success("Every product is at or above PAR. Nothing to restock.")
+            return
+        first, second, third = ui.columns(3)
+        first.metric("Products to restock", len(products))
+        second.metric("Units to order", sum(product.get_restock_quantity() for product in products))
+        third.metric("Value at retail price", f"${self.__restock_value(products):,.2f}")
+
+        by_brand: dict[str, list[Product]] = {}
+        for product in products:
+            by_brand.setdefault(product.get_brand().get_name(), []).append(product)
+        for brand_name, brand_products in by_brand.items():
+            ui.markdown(f"**{brand_name}** ({len(brand_products)} products, "
+                        f"${self.__restock_value(brand_products):,.2f})")
+            ui.dataframe([self.__restock_row(product) for product in brand_products], hide_index=True)
+
+        ui.download_button("Download restock list (CSV)", self.__restock_csv(products),
+                           file_name="restock_list.csv", mime="text/csv", key="restock_download")
+        sure = ui.checkbox("The order has arrived: set every product above back to its PAR level",
+                           key="restock_sure")
+        if ui.button("Mark as restocked", key="restock_button", disabled=not sure):
+            for product in products:
+                product.update_stock(product.get_par_level())
+            self.__finish(f"{len(products)} products restocked to PAR.")
+
+    @staticmethod
+    def __restock_value(products: list[Product]) -> float:
+        return sum(product.get_restock_quantity() * product.get_price() for product in products)
+
+    @staticmethod
+    def __restock_row(product: Product) -> dict:
+        return {"ID": product.get_product_id(), "Name": product.get_name(),
+                "Category": product.CATEGORY_NAME,
+                "Detail": f"{product.get_detail_label()}: {product.get_detail_text()}",
+                "Stock": product.get_stock(), "PAR": product.get_par_level(),
+                "Order": product.get_restock_quantity()}
+
+    @staticmethod
+    def __restock_csv(products: list[Product]) -> str:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["brand", "product_id", "name", "category", "detail", "stock", "par", "order"])
+        for product in products:
+            writer.writerow([product.get_brand().get_name(), product.get_product_id(), product.get_name(),
+                             product.CATEGORY_NAME, product.get_detail_text(), product.get_stock(),
+                             product.get_par_level(), product.get_restock_quantity()])
+        return output.getvalue()
 
     # ---------- 2. add product ----------
 
@@ -189,6 +250,8 @@ class InventoryGui:
         brand = self.__choose_brand()
         price = ui.number_input("Price ($)", min_value=0.01, value=10.00, step=1.00, key="add_price")
         stock = int(ui.number_input("Stock quantity", min_value=0, value=0, step=1, key="add_stock"))
+        par_level = int(ui.number_input("PAR level (stock to keep on the shelf)", min_value=0,
+                                        value=DEFAULT_PAR_LEVEL, step=1, key="add_par"))
         detail = self.__detail_input(category)
         if not ui.button("Add product", key="add_button", type="primary"):
             return
@@ -200,7 +263,8 @@ class InventoryGui:
             ui.error("Fill in the brand name.")
         else:
             try:
-                product = ProductFactory.create(category, product_id, name, price, stock, brand, detail)
+                product = ProductFactory.create(category, product_id, name, price, stock, brand,
+                                                detail, par_level)
             except ValueError as error:          # the product classes explain what is wrong
                 ui.error(str(error))
                 return
@@ -219,16 +283,24 @@ class InventoryGui:
 
     def __update_stock(self) -> None:
         ui = self.__ui
-        ui.subheader("Update stock")
+        ui.subheader("Update stock & PAR")
         product = self.__pick_product("stock_product")
         if product is None:
             return
-        ui.write(f"Current stock: **{product.get_stock()}**")
-        new_stock = int(ui.number_input("New stock quantity", min_value=0, value=product.get_stock(),
-                                        step=1, key=f"stock_{product.get_product_id()}"))
-        if ui.button("Update stock", key="stock_button", type="primary"):
+        product_id = product.get_product_id()
+        ui.write(f"Current stock: **{product.get_stock()}** (PAR {product.get_par_level()})")
+        first, second = ui.columns(2)
+        new_stock = int(first.number_input("New stock quantity", min_value=0, value=product.get_stock(),
+                                           step=1, key=f"stock_{product_id}"))
+        new_par = int(second.number_input("PAR level", min_value=0, value=product.get_par_level(),
+                                          step=1, key=f"par_{product_id}"))
+        if ui.button("Update", key="stock_button", type="primary"):
             product.update_stock(new_stock)
-            self.__finish(f"Stock for {product.get_name()} updated to {new_stock}.")
+            product.set_par_level(new_par)
+            message = f"{product.get_name()}: stock {new_stock}, PAR {new_par}."
+            if product.is_below_par():
+                message += f" Still below PAR: order {product.get_restock_quantity()}."
+            self.__finish(message)
 
     def __remove(self) -> None:
         ui = self.__ui
@@ -269,8 +341,9 @@ class InventoryGui:
                    ("Category", product.CATEGORY_NAME),
                    (product.get_detail_label(), product.get_detail_text()),
                    ("Price", f"${product.get_price():.2f}"),
-                   ("Stock", f"{product.get_stock()} (low stock, reorder)" if product.is_low_stock()
-                    else str(product.get_stock())),
+                   ("Stock", f"{product.get_stock()} (PAR {product.get_par_level()})"),
+                   ("Restock", f"Below PAR: order {product.get_restock_quantity()}"
+                    if product.is_below_par() else "At or above PAR"),
                    ("Tip", product.get_care_tip())]       # POLYMORPHISM: each category's own tip
         ui.success(f"Found {product.get_product_id()}")
         ui.dataframe([{"Detail": label, "Value": value} for label, value in details], hide_index=True)
@@ -320,8 +393,9 @@ class InventoryGui:
     def __import(self) -> None:
         ui = self.__ui
         ui.subheader("Load products from CSV")
-        ui.caption(f"Columns: {', '.join(CSV_COLUMNS)}. The detail is the skin type, shade, "
-                   "hair type or size in ml. Bad rows are skipped and reported; good rows still load.")
+        ui.caption(f"Columns: {', '.join(CSV_COLUMNS)}, and optionally par. The detail is the skin "
+                   "type, shade, hair type or size in ml. Bad rows are skipped and reported; "
+                   "good rows still load.")
         uploaded = ui.file_uploader("CSV file (leave empty to use products.csv)", type=["csv"],
                                     key="csv_file")
         if not ui.button("Import products", key="csv_button", type="primary"):

@@ -61,6 +61,10 @@ class FakeStreamlit:
     def metric(self, label, value, delta=None, **kwargs):
         self.__record("metric", (label, value))
 
+    def download_button(self, label, data, file_name=None, key=None, **kwargs):
+        self.__record("download", (file_name, data))
+        return key in self.clicks
+
     def divider(self):
         pass
 

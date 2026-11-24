@@ -7,6 +7,7 @@ from product_factory import ProductFactory
 INVENTORY_FILE = "inventory.json"
 PRODUCTS_CSV = "products.csv"
 CSV_COLUMNS = ["category", "product_id", "name", "brand", "price", "stock_quantity", "detail"]
+OPTIONAL_COLUMN = "par"          # an 8th column; without it the default PAR level is used
 
 
 def load_inventory(inventory: Inventory, filename: str = INVENTORY_FILE) -> None:
@@ -36,8 +37,8 @@ def save_inventory(inventory: Inventory, filename: str = INVENTORY_FILE) -> None
 
 
 def load_products(path: str, inventory: Inventory) -> None:
-    """Load products from a CSV file with the columns in CSV_COLUMNS.
-    Bad rows are reported and skipped; good rows still load."""
+    """Load products from a CSV file with the columns in CSV_COLUMNS (plus an optional
+    par column). Bad rows are reported and skipped; good rows still load."""
     try:
         file = open(path, newline="")
     except FileNotFoundError:
@@ -50,12 +51,15 @@ def load_products(path: str, inventory: Inventory) -> None:
             next(reader, None)                                  # skip the header row
             for row_number, row in enumerate(reader, start=2):  # row 1 is the header
                 try:
-                    if len(row) != len(CSV_COLUMNS):
-                        raise ValueError(f"expected {len(CSV_COLUMNS)} columns, found {len(row)}")
-                    category, product_id, name, brand_name, price, stock_quantity, detail = row
+                    if len(row) not in (len(CSV_COLUMNS), len(CSV_COLUMNS) + 1):
+                        raise ValueError(f"expected {len(CSV_COLUMNS)} or {len(CSV_COLUMNS) + 1} "
+                                         f"columns, found {len(row)}")
+                    category, product_id, name, brand_name, price, stock_quantity, detail = row[:7]
                     record = {"category": category, "id": product_id, "name": name,
                               "brand": {"name": brand_name}, "price": float(price),
                               "stock": int(stock_quantity), "detail": detail}
+                    if len(row) > len(CSV_COLUMNS):
+                        record["par"] = int(row[7])
                     product = ProductFactory.from_dict(record, brands)
                 except ValueError as error:
                     print(f"Row {row_number} skipped: {error}")

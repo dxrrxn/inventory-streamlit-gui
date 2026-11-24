@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 from brand import Brand
 
-LOW_STOCK_LEVEL = 5        # at or below this, a product needs restocking
+DEFAULT_PAR_LEVEL = 10     # PAR used when none is given (e.g. older saved records)
 
 
 class Product(ABC):
@@ -10,12 +10,16 @@ class Product(ABC):
 
     A plain Product can't be created; use FaceProduct, MakeupProduct, HairProduct
     or BodyProduct. Each category adds its own detail (skin type, shade, ...).
+
+    PAR level: the stock the store wants on the shelf. When the stock falls below
+    PAR, the product goes on the restock list to be topped back up to PAR.
     """
 
     CATEGORY = ""              # set by each subclass, e.g. "face"
     CATEGORY_NAME = ""         # shown on screen, e.g. "Face & skincare"
 
-    def __init__(self, product_id: str, name: str, price: float, stock: int, brand: Brand):
+    def __init__(self, product_id: str, name: str, price: float, stock: int, brand: Brand,
+                 par_level: int = DEFAULT_PAR_LEVEL):
         product_id, name = str(product_id).strip(), str(name).strip()
         if not product_id or not name:
             raise ValueError("Product ID and name cannot be empty.")
@@ -27,7 +31,9 @@ class Product(ABC):
         self.__price: float = price
         self.__stock: int = 0
         self.__brand: Brand = brand               # association: a reference, not ownership
+        self.__par_level: int = 0
         self.update_stock(stock)
+        self.set_par_level(par_level)
 
     # ---------- Read-only access to attributes ----------
 
@@ -46,6 +52,9 @@ class Product(ABC):
     def get_brand(self) -> Brand:
         return self.__brand
 
+    def get_par_level(self) -> int:
+        return self.__par_level
+
     # ---------- Behaviour ----------
 
     def update_stock(self, quantity: int) -> None:
@@ -60,12 +69,24 @@ class Product(ABC):
         detail = self.get_detail()
         return f"{detail:g}" if isinstance(detail, float) else str(detail)
 
-    def is_low_stock(self) -> bool:
-        return self.__stock <= LOW_STOCK_LEVEL
+    def set_par_level(self, par_level: int) -> None:
+        """Set the PAR level: any whole number from 0 upwards (0 = never restock)."""
+        par_level = int(par_level)
+        if par_level < 0:
+            raise ValueError("PAR level cannot be negative.")
+        self.__par_level = par_level
+
+    def is_below_par(self) -> bool:
+        return self.__stock < self.__par_level
+
+    def get_restock_quantity(self) -> int:
+        """How many to order to bring the stock back up to PAR (0 if at or above PAR)."""
+        return max(self.__par_level - self.__stock, 0)
 
     def display_information(self) -> None:
         print(f"ID: {self.__product_id} | {self.__brand.get_name()} {self.__name} | "
-              f"{self.CATEGORY_NAME} | Price: ${self.__price:.2f} | Stock: {self.__stock} | "
+              f"{self.CATEGORY_NAME} | Price: ${self.__price:.2f} | "
+              f"Stock: {self.__stock} / PAR {self.__par_level} | "
               f"{self.get_detail_label()}: {self.get_detail_text()}")
 
     def to_dict(self) -> dict:
@@ -76,6 +97,7 @@ class Product(ABC):
             "name": self.__name,
             "price": self.__price,
             "stock": self.__stock,
+            "par": self.__par_level,
             "brand": self.__brand.to_dict(),
             "detail": self.get_detail(),
         }
