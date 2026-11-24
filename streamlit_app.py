@@ -1,12 +1,13 @@
 """
-Streamlit web GUI for the Sephora Inventory Tracker.
+Streamlit web GUI for the Sephora Inventory Tracker (5 stores, staff logins).
 
 Run with:  streamlit run streamlit_app.py
 
-The GUI replaces the terminal menu in main.py and uses the same classes: Inventory,
-ProductFactory (Face, Makeup, Hair and Body products), Brand, Order, the
-DiscountStrategy classes and file_handler.py. StoreFactory decides whether the
-products are kept in inventory.json or in MongoDB (see .env.example).
+Employees log in to their own store; the master login can open every store, see
+an overview of all of them and manage staff logins. The inventory pages use the
+same classes as the terminal menu: Inventory, ProductFactory (Face, Makeup, Hair
+and Body products), Brand, Order, the DiscountStrategy classes and file_handler.py.
+StoreFactory decides whether data is kept in JSON files or MongoDB (see .env.example).
 """
 from __future__ import annotations
 
@@ -16,12 +17,15 @@ import os
 import tempfile
 from contextlib import redirect_stdout
 
+from account_gui import AccountGui
+from account_manager import AccountManager
 from brand import Brand
+from branch import Branch, BRANCH_NAMES
+from daily_stock_record import DailyStockRecord
 from face_product import FaceProduct
 from file_handler import load_products, CSV_COLUMNS
 from hair_product import HairProduct
 from inventory import Inventory
-from inventory_store import InventoryStore
 from main import DISCOUNT_OPTIONS
 from order import Order
 from product import Product, DEFAULT_PAR_LEVEL
@@ -29,41 +33,54 @@ from product_factory import ProductFactory
 from store_factory import StoreFactory
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-INVENTORY_PATH = os.path.join(APP_DIR, "inventory.json")
 PRODUCTS_CSV_PATH = os.path.join(APP_DIR, "products.csv")
 NEW_BRAND = "+ New brand"
+ALL_STORES = "All stores"
 CATEGORY_NAMES = {category: product_class.CATEGORY_NAME
                   for category, product_class in ProductFactory.CATEGORIES.items()}
 
 
 class InventoryGui:
-    """One page per menu option. Streamlit re-runs the whole script after every
-    click, so the Inventory and the order being built are kept in session_state.
+    """One page per menu option, for the store the user is working in.
 
+    Streamlit re-runs the whole script after every click, so the loaded stores,
+    the logged-in user and the order being built are kept in session_state.
     The Streamlit module is passed in as `ui` (dependency injection), so the tests
-    can use a fake one instead of a browser. AGGREGATION: the InventoryStore is
-    created outside (by StoreFactory, or by the tests) and passed in.
+    can use a fake one instead of a browser. AGGREGATION: the StoreFactory is
+    created outside (from .env, or by the tests) and passed in.
+    COMPOSITION: InventoryGui creates the AccountGui it uses for the login screens.
     """
 
-    PAGES = ("Products", "Restock list", "Add product", "Update stock & PAR", "Remove product",
+    PAGES = ("Products", "Restock list", "Daily stock", "Add product", "Update stock & PAR", "Remove product",
              "Search product", "Create order", "Import from CSV")
+    MASTER_PAGES = ("Overview", "Manage staff")
 
-    def __init__(self, ui, store: InventoryStore | None = None):
+    def __init__(self, ui, factory: StoreFactory | None = None):
         self.__ui = ui
         state = ui.session_state
-        if "inventory" not in state:
+        if "factory" not in state:
             warning = ""
-            if store is None:
-                store, warning = StoreFactory.from_env(INVENTORY_PATH)
-            inventory = Inventory()
-            message = store.load(inventory)
-            state["store"] = store
-            state["inventory"] = inventory
-            state["order_lines"] = []          # (product_id, quantity) pairs
-            state["unsaved"] = False
-            state["flash"] = "\n".join(text for text in (warning, message) if text)
-        self.__store: InventoryStore = state["store"]
-        self.__inventory: Inventory = state["inventory"]
+            if factory is None:
+                factory, warning = StoreFactory.from_env(APP_DIR)
+            state["factory"] = factory
+            state["flash"] = warning
+            try:
+                state["accounts"] = AccountManager(factory.account_store())
+            except (OSError, KeyError, TypeError, ValueError) as error:
+                state["accounts"] = None           # never offer "first-time setup" over unreadable accounts
+                state["accounts_error"] = str(error)
+            self.__reset_work(state)
+        self.__factory: StoreFactory = state["factory"]
+        self.__accounts: AccountManager | None = state["accounts"]
+        self.__branch: Branch | None = None       # the store being worked on in this run
+        self.__inventory: Inventory | None = None
+
+    @staticmethod
+    def __reset_work(state) -> None:
+        """Forget loaded stores, unsaved changes and orders (at start and on log out)."""
+        state["branches"] = {}                     # store name -> Branch, loaded when first opened
+        state["unsaved"] = set()                   # names of stores with unsaved changes
+        state["order_lines"] = {}                  # store name -> [(product_id, quantity)]
 
     @staticmethod
     def __captured(function, *args) -> str:
@@ -74,11 +91,19 @@ class InventoryGui:
         return output.getvalue().strip()
 
     def __finish(self, message: str, changed: bool = True) -> None:
-        """Remember a message, mark unsaved changes and redraw the page."""
+        """Remember a message, mark the store as having unsaved changes and redraw the page."""
         self.__ui.session_state["flash"] = message
-        if changed:
-            self.__ui.session_state["unsaved"] = True
+        if changed and self.__branch is not None:
+            self.__ui.session_state["unsaved"].add(self.__branch.get_name())
         self.__ui.rerun()
+
+    def __open_branch(self, name: str) -> Branch:
+        """The store's Branch, loaded from JSON or MongoDB the first time it is opened."""
+        branches = self.__ui.session_state["branches"]
+        if name not in branches:
+            branches[name] = Branch(name, self.__factory.inventory_store(name))
+            self.__ui.info(branches[name].get_load_message())
+        return branches[name]
 
     def __product_label(self, product_id: str) -> str:
         product = self.__inventory.find_product(product_id)
@@ -93,28 +118,106 @@ class InventoryGui:
 
     def run(self) -> None:
         ui = self.__ui
+        state = ui.session_state
         ui.set_page_config(page_title="Sephora Inventory Tracker", layout="wide")
         ui.title("Sephora Inventory Tracker")
-        flash = ui.session_state.pop("flash", "")
+        flash = state.pop("flash", "")
         if flash:
             ui.info(flash)
+        if self.__accounts is None:
+            ui.error(f"The staff accounts could not be read, so nobody can log in: "
+                     f"{state.get('accounts_error')}")
+            return
+        account_gui = AccountGui(ui, self.__accounts)
+        if not self.__accounts.has_master():
+            account_gui.setup()
+            return
+        user = state.get("user")
+        if user is None:
+            account_gui.login()
+            return
 
-        page = ui.sidebar.radio("Menu", self.PAGES, key="page")
+        ui.sidebar.write(f"Logged in: **{user.get_username()}**")
+        ui.sidebar.caption(user.describe())
+        allowed = [name for name in BRANCH_NAMES if user.can_access(name)]   # POLYMORPHISM
+        if user.is_master():                       # POLYMORPHISM: each account answers for itself
+            store = ui.sidebar.selectbox("Store", [ALL_STORES] + allowed, key="branch")
+        else:
+            store = allowed[0]
+            ui.sidebar.write(f"Store: **{store}**")
+        if store == ALL_STORES:
+            page = ui.sidebar.radio("Menu", self.MASTER_PAGES, key="master_page")
+        else:
+            page = ui.sidebar.radio("Menu", self.PAGES, key="page")
+            self.__branch = self.__open_branch(store)
+            self.__inventory = self.__branch.get_inventory()
         ui.sidebar.divider()
-        ui.sidebar.caption(f"Storage: {self.__store.name}")
-        if ui.session_state.get("unsaved"):
-            ui.sidebar.warning("You have unsaved changes.")
-        if ui.sidebar.button("Save inventory", key="save"):
-            saved, message = self.__store.save(self.__inventory)   # JSON or MongoDB: same call
-            if saved:
-                ui.session_state["unsaved"] = False
-                self.__finish(message, changed=False)
-            ui.sidebar.error(message)
+        self.__sidebar_save(store)
+        if ui.sidebar.button("Log out", key="logout"):
+            state.pop("user", None)        # the store and menu choices reset by themselves
+            self.__reset_work(state)
+            state["flash"] = "Logged out."
+            ui.rerun()
 
-        {"Products": self.__products, "Restock list": self.__restock, "Add product": self.__add,
+        if store == ALL_STORES:
+            {"Overview": self.__overview, "Manage staff": account_gui.manage_staff}[page]()
+            return
+        ui.header(store)
+        {"Products": self.__products, "Restock list": self.__restock, "Daily stock": self.__daily,
+         "Add product": self.__add,
          "Update stock & PAR": self.__update_stock,
          "Remove product": self.__remove, "Search product": self.__search,
          "Create order": self.__order, "Import from CSV": self.__import}[page]()
+
+    def __sidebar_save(self, store: str) -> None:
+        """Save this store (or, in the overview, every store that has been opened).
+        The button is always available: a store that started from its sample file
+        has no changes yet but still needs saving once to get its own copy."""
+        ui = self.__ui
+        unsaved = ui.session_state["unsaved"]
+        to_save = sorted(ui.session_state["branches"]) if store == ALL_STORES else [store]
+        if self.__branch is not None:
+            ui.sidebar.caption(f"Storage: {self.__branch.get_storage_name()}")
+        if unsaved:
+            ui.sidebar.warning("Unsaved changes in: " + ", ".join(sorted(unsaved)) +
+                               ". Logging out discards them.")
+        label = "Save all stores" if store == ALL_STORES else "Save inventory"
+        if not ui.sidebar.button(label, key="save"):
+            return
+        messages, failed = [], False
+        for name in to_save:
+            saved, message = ui.session_state["branches"][name].save()   # JSON or MongoDB: same call
+            messages.append(message)
+            if saved:
+                unsaved.discard(name)
+            failed = failed or not saved
+        if failed:
+            ui.sidebar.error("\n".join(messages))
+            return
+        ui.session_state["flash"] = "\n".join(messages)
+        ui.rerun()
+
+    # ---------- master: all stores ----------
+
+    def __overview(self) -> None:
+        """Every store side by side, and one restock list for all of them."""
+        ui = self.__ui
+        ui.subheader("All stores")
+        branches = [self.__open_branch(name) for name in BRANCH_NAMES]
+        rows = []
+        for branch in branches:
+            products = branch.get_inventory().get_products()
+            below = branch.get_inventory().get_products_below_par()
+            rows.append({"Store": branch.get_name(), "Products": len(products),
+                         "Units in stock": sum(p.get_stock() for p in products),
+                         "Stock value": f"${sum(p.get_price() * p.get_stock() for p in products):,.2f}",
+                         "Below PAR": len(below),
+                         "Units to order": sum(p.get_restock_quantity() for p in below)})
+        ui.dataframe(rows, hide_index=True)
+        ui.download_button("Download restock list for all stores (CSV)",
+                           self.__restock_csv([(b.get_name(), p) for b in branches
+                                               for p in b.get_inventory().get_products_below_par()]),
+                           file_name="restock_all_stores.csv", mime="text/csv", key="restock_all_download")
 
     # ---------- 1. display all products ----------
 
@@ -181,8 +284,10 @@ class InventoryGui:
                         f"${self.__restock_value(brand_products):,.2f})")
             ui.dataframe([self.__restock_row(product) for product in brand_products], hide_index=True)
 
-        ui.download_button("Download restock list (CSV)", self.__restock_csv(products),
-                           file_name="restock_list.csv", mime="text/csv", key="restock_download")
+        store = self.__branch.get_name()
+        ui.download_button("Download restock list (CSV)",
+                           self.__restock_csv([(store, product) for product in products]),
+                           file_name=f"restock_{Branch.key(store)}.csv", mime="text/csv", key="restock_download")
         sure = ui.checkbox("The order has arrived: set every product above back to its PAR level",
                            key="restock_sure")
         if ui.button("Mark as restocked", key="restock_button", disabled=not sure):
@@ -203,14 +308,116 @@ class InventoryGui:
                 "Order": product.get_restock_quantity()}
 
     @staticmethod
-    def __restock_csv(products: list[Product]) -> str:
+    def __restock_csv(lines: list[tuple[str, Product]]) -> str:
+        """A CSV of (store name, product) pairs, with how many of each to order."""
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["brand", "product_id", "name", "category", "detail", "stock", "par", "order"])
-        for product in products:
-            writer.writerow([product.get_brand().get_name(), product.get_product_id(), product.get_name(),
-                             product.CATEGORY_NAME, product.get_detail_text(), product.get_stock(),
-                             product.get_par_level(), product.get_restock_quantity()])
+        writer.writerow(["store", "brand", "product_id", "name", "category", "detail",
+                         "stock", "par", "order"])
+        for store, product in lines:
+            writer.writerow([store, product.get_brand().get_name(), product.get_product_id(),
+                             product.get_name(), product.CATEGORY_NAME, product.get_detail_text(),
+                             product.get_stock(), product.get_par_level(), product.get_restock_quantity()])
+        return output.getvalue()
+
+    # ---------- daily leftover stock ----------
+
+    def __daily(self) -> None:
+        """Record each day's closing (leftover) stock, and look back at any recorded day."""
+        ui = self.__ui
+        store = self.__branch.get_name()
+        history = self.__factory.history_store(store)
+        ui.subheader("Daily leftover stock")
+        try:
+            records = history.load()
+        except OSError as error:
+            ui.error(str(error))
+            return
+
+        ui.markdown("**Record closing stock**")
+        ui.caption("Takes a snapshot of every product's stock as it is now. Do it at closing time; "
+                   "recording a day again replaces that day's record.")
+        today = DailyStockRecord.today()
+        day = ui.date_input("Day", value=today, max_value=today, format="DD-MM-YYYY", key="daily_day")
+        allowed = True
+        if any(record.get_day() == day for record in records):
+            allowed = ui.checkbox(f"Replace the record already saved for {day:%d-%m-%Y}",
+                                  key=f"daily_replace_{day}")
+        if ui.button("Record closing stock", key="daily_record", type="primary", disabled=not allowed):
+            user = ui.session_state["user"].get_username()
+            try:
+                record = DailyStockRecord.from_inventory(store, day, self.__inventory, user)
+            except ValueError as error:
+                ui.error(str(error))
+                return
+            if not history.save(record):
+                ui.error("The daily stock could not be saved. Please try again.")
+                return
+            self.__finish(f"Closing stock for {day:%d-%m-%Y} recorded: {record.total_units()} units.",
+                          changed=False)
+
+        if not records:
+            ui.info("No days recorded yet.")
+            return
+        ui.markdown("**View by day**")
+        days = [record.get_day() for record in records]          # oldest first
+        chosen = ui.selectbox("Day", list(reversed(days)), key="daily_view",
+                              format_func=lambda d: d.strftime("%a %d-%m-%Y"))
+        index = days.index(chosen)
+        record = records[index]
+        previous = records[index - 1] if index > 0 else None
+        rows = record.compare_with(previous)
+
+        first, second, third = ui.columns(3)
+        first.metric("Units left", record.total_units())
+        second.metric("Below PAR", record.below_par_count())
+        third.metric("Change since previous day",
+                     "-" if previous is None else f"{record.total_units() - previous.total_units():+d}")
+        compared = ("the first recorded day" if previous is None
+                    else f"compared with {previous.get_day():%d-%m-%Y}")
+        ui.caption(f"Recorded by {record.get_recorded_by()} at {record.get_recorded_at()[11:16]}, "
+                   f"{compared}.")
+        ui.dataframe([{"ID": row["id"], "Brand": row["brand"], "Name": row["name"],
+                       "Leftover": row["stock"], "PAR": row["par"],
+                       "Status": "Below PAR" if row["stock"] < row["par"] else "OK",
+                       "Change": "new" if row["change"] is None else f"{row['change']:+d}"}
+                      for row in rows], hide_index=True)
+        ui.download_button(f"Download {chosen:%d-%m-%Y} (CSV)", self.__daily_csv(record, rows),
+                           file_name=f"stock_{Branch.key(store)}_{chosen.isoformat()}.csv",
+                           mime="text/csv", key="daily_download")
+        self.__daily_chart(records)
+
+    def __daily_chart(self, records: list[DailyStockRecord]) -> None:
+        """Leftover stock over the recorded days: all products together, or one product with its PAR."""
+        ui = self.__ui
+        names = {}
+        for record in records:
+            for count in record.get_counts():
+                names[count["id"]] = f"{count['id']} - {count['brand']} {count['name']}"
+        options = ["All products"] + sorted(names)
+        chosen = ui.selectbox("Chart", options, key="daily_chart",
+                              format_func=lambda option: names.get(option, option))
+        days = [record.get_day().strftime("%d-%m") for record in records]
+        if chosen == "All products":
+            ui.line_chart({"Day": days, "Units left": [record.total_units() for record in records]},
+                          x="Day", y="Units left")
+            return
+        stock, par = [], []
+        for record in records:
+            count = next((c for c in record.get_counts() if c["id"] == chosen), None)
+            stock.append(None if count is None else count["stock"])
+            par.append(None if count is None else count["par"])
+        ui.line_chart({"Day": days, "Leftover": stock, "PAR": par}, x="Day", y=["Leftover", "PAR"])
+
+    @staticmethod
+    def __daily_csv(record: DailyStockRecord, rows: list[dict]) -> str:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["store", "date", "product_id", "brand", "name", "leftover", "par", "change"])
+        for row in rows:
+            writer.writerow([record.get_store(), record.get_day().isoformat(), row["id"], row["brand"],
+                             row["name"], row["stock"], row["par"],
+                             "" if row["change"] is None else row["change"]])
         return output.getvalue()
 
     # ---------- 2. add product ----------
@@ -352,7 +559,8 @@ class InventoryGui:
 
     def __order(self) -> None:
         ui = self.__ui
-        state = ui.session_state
+        all_lines = ui.session_state["order_lines"]
+        store = self.__branch.get_name()             # each store builds its own order
         ui.subheader("Create order")
         order_id = ui.text_input("Order ID", value="O001", key="order_id").strip() or "O001"
         ids = self.__product_ids()
@@ -361,14 +569,14 @@ class InventoryGui:
             chosen = first.selectbox("Product", ids, key="order_product", format_func=self.__product_label)
             quantity = int(second.number_input("Quantity", min_value=1, value=1, step=1, key="order_qty"))
             if ui.button("Add to order", key="order_add"):
-                state["order_lines"] = state["order_lines"] + [(chosen, quantity)]
+                all_lines[store] = all_lines.get(store, []) + [(chosen, quantity)]
 
         # COMPOSITION: the Order creates its own OrderLines from the chosen products.
         labels = [label for label, _ in DISCOUNT_OPTIONS.values()]
         label = ui.selectbox("Discount", labels, key="order_discount")
         discount = next(strategy for name, strategy in DISCOUNT_OPTIONS.values() if name == label)
         order = Order(order_id, discount)            # STRATEGY: the Order just calls apply()
-        for product_id, quantity in state["order_lines"]:
+        for product_id, quantity in all_lines.get(store, []):
             product = self.__inventory.find_product(product_id)
             if product is not None:                  # skip products removed since
                 order.add_order_line(product, quantity)
@@ -385,7 +593,7 @@ class InventoryGui:
         second.metric("Discount", type(order.get_discount()).__name__)
         third.metric("Total", f"${order.calculate_total():.2f}")
         if ui.button("Clear order", key="order_clear"):
-            state["order_lines"] = []
+            all_lines[store] = []
             self.__finish("Order cleared.", changed=False)
 
     # ---------- 7. import from CSV ----------

@@ -16,3 +16,7 @@ venv/
 # IDE settings
 .vscode/
 .idea/
+
+# Runtime data: staff logins (hashed passwords) and each store's saved inventory
+accounts.json
+stores/

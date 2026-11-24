@@ -10,12 +10,12 @@ import unittest
 from unittest.mock import patch
 
 from fake_mongo import BrokenCollection, FakeCollection
-from fake_streamlit import FakeStreamlit, RerunRequested
 from inventory import Inventory
 from json_inventory_store import JsonInventoryStore
 from mongo_inventory_store import MongoInventoryStore
 from store_factory import StoreFactory
-from streamlit_app import InventoryGui, APP_DIR
+from streamlit_app import APP_DIR
+from app_test_case import AppTestCase, FakeDatabase, MASTER_PASSWORD, STAFF_PASSWORD
 
 
 class StoreTestCase(unittest.TestCase):
@@ -93,7 +93,22 @@ class TestMongoInventoryStore(StoreTestCase):
         self.assertIn("saving now could delete them", message)
 
 
-class TestStoreFactory(StoreTestCase):
+class TestJsonInventoryStore(StoreTestCase):
+
+    def test_new_store_starts_from_the_sample_and_saves_to_its_own_file(self):
+        path = os.path.join(self.folder, "stores", "kovan.json")
+        store = JsonInventoryStore(path, first_time_source=self.json_store)
+        inventory = Inventory()
+        self.assertIn("No saved inventory yet", store.load(inventory))
+        self.assertEqual(len(inventory.get_products()), 12)
+        inventory.remove_product("F001")
+        self.assertTrue(store.save(inventory)[0])             # creates the stores/ folder
+        again = Inventory()
+        self.assertNotIn("No saved inventory yet", store.load(again))
+        self.assertEqual(len(again.get_products()), 11)
+
+
+class TestStoreFactory(AppTestCase):
 
     def setUp(self):
         super().setUp()
@@ -101,25 +116,29 @@ class TestStoreFactory(StoreTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_json_file_by_default(self):
+    def test_json_files_by_default_one_per_store(self):
         with patch.dict(os.environ, {"STORAGE": "json"}):
-            store, warning = StoreFactory.from_env(self.path)
-        self.assertEqual(store.name, "JSON file (inventory.json)")
+            factory, warning = StoreFactory.from_env(self.folder)
+        self.assertFalse(factory.uses_mongo)
         self.assertEqual(warning, "")
+        self.assertEqual(factory.inventory_store("Kovan").name, "JSON file (kovan.json)")
+        self.assertEqual(factory.inventory_store("Serangoon").name, "JSON file (serangoon.json)")
 
     def test_falls_back_to_json_without_uri_or_server(self):
         with patch.dict(os.environ, {"STORAGE": "mongo", "MONGODB_URI": ""}):
-            store, warning = StoreFactory.from_env(self.path)
-        self.assertEqual(store.name, "JSON file (inventory.json)")
+            factory, warning = StoreFactory.from_env(self.folder)
+        self.assertFalse(factory.uses_mongo)
         self.assertIn("MONGODB_URI is not set", warning)
 
         with patch.dict(os.environ, {"STORAGE": "mongo", "MONGODB_URI": "not-a-uri"}):
-            store, warning = StoreFactory.from_env(self.path)
-        self.assertEqual(store.name, "JSON file (inventory.json)")
+            factory, warning = StoreFactory.from_env(self.folder)
+        self.assertFalse(factory.uses_mongo)
         self.assertIn("Could not connect to MongoDB", warning)
         self.assertNotIn("not-a-uri", warning)           # the URI (with its password) is never shown
 
     def test_uses_mongodb_when_the_server_answers(self):
+        database = FakeDatabase()
+
         class FakeClient:
             def __init__(self, uri, **options):
                 self.admin = self
@@ -128,30 +147,64 @@ class TestStoreFactory(StoreTestCase):
                 return {"ok": 1}
 
             def __getitem__(self, name):
-                return {"products": FakeCollection("products")}
+                return database
 
         env = {"STORAGE": "mongo", "MONGODB_URI": "mongodb://localhost:27017", "MONGODB_DATABASE": "shop"}
         with patch.dict(os.environ, env), patch("store_factory.MongoClient", FakeClient):
-            store, warning = StoreFactory.from_env(self.path)
-        self.assertEqual(store.name, "MongoDB (shop)")
+            factory, warning = StoreFactory.from_env(self.folder)
+        self.assertTrue(factory.uses_mongo)
         self.assertEqual(warning, "")
+        self.assertEqual(factory.inventory_store("Hougang").name, "MongoDB (shop)")
+        factory.inventory_store("Hougang").load(Inventory())
+        self.assertIn("products_hougang", database)
 
 
-class TestGuiWithMongoDB(StoreTestCase):
+class TestSampleData(AppTestCase):
 
-    def test_sidebar_shows_the_storage_and_save_goes_to_mongodb(self):
-        collection = FakeCollection("products")
-        state = {}
-        store = MongoInventoryStore(collection, "test_db", first_time_source=self.json_store)
-        ui = FakeStreamlit(inputs={"page": "Products"}, session_state=state)
-        InventoryGui(ui, store).run()
+    def test_each_store_starts_from_its_own_sample_file(self):
+        os.makedirs(os.path.join(self.folder, "sample_data"))
+        shutil.copy(os.path.join(APP_DIR, "sample_data", "hougang.json"),
+                    os.path.join(self.folder, "sample_data", "hougang.json"))
+        hougang, kovan = Inventory(), Inventory()
+        self.assertIn("hougang.json", self.factory.inventory_store("Hougang").load(hougang))
+        self.assertIn("inventory.json", self.factory.inventory_store("Kovan").load(kovan))   # no sample: the default
+        self.assertEqual(len(hougang.get_products()), 10)
+        self.assertEqual(len(kovan.get_products()), 12)
+
+    def test_the_five_sample_files_are_different(self):
+        contents = set()
+        for name in ("sengkang", "punggol", "hougang", "kovan", "serangoon"):
+            inventory = Inventory()
+            JsonInventoryStore(os.path.join(APP_DIR, "sample_data", f"{name}.json")).load(inventory)
+            self.assertGreater(len(inventory.get_products()), 0)
+            contents.add(tuple((p.get_product_id(), p.get_stock()) for p in inventory.get_products()))
+        self.assertEqual(len(contents), 5)
+
+
+class TestGuiWithMongoDB(AppTestCase):
+
+    def make_factory(self):
+        self.database = FakeDatabase()
+        return StoreFactory(self.folder, self.database, "test_db")
+
+    def test_accounts_and_each_store_have_their_own_collections(self):
+        self.add_accounts()
+        self.assertEqual([doc["username"] for doc in self.database["accounts"].documents],
+                         ["boss", "amy", "ben"])
+        saved = str(self.database["accounts"].documents)
+        self.assertNotIn(MASTER_PASSWORD, saved)                 # only hashes are stored
+        self.assertNotIn(STAFF_PASSWORD, saved)
+
+        self.log_in("amy")
+        ui, _ = self.show("Products")
         self.assertIn("Storage: MongoDB (test_db)", ui.texts("caption"))
-
-        ui = FakeStreamlit(inputs={"page": "Products"}, clicks={"save"}, session_state=state)
-        with self.assertRaises(RerunRequested):          # the page redraws after saving
-            InventoryGui(ui).run()
-        self.assertEqual(len(collection.documents), 12)
-        self.assertEqual(state["flash"], "12 products saved to MongoDB.")
+        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 1}, clicks={"stock_button"})
+        _, rerun = self.show("Products", clicks={"save"})
+        self.assertTrue(rerun)
+        self.assertEqual(self.state["flash"], "Kovan: 12 products saved to MongoDB.")
+        kovan = {doc["id"]: doc for doc in self.database["products_kovan"].documents}
+        self.assertEqual(kovan["F001"]["stock"], 1)
+        self.assertEqual(self.database["products_punggol"].documents, [])   # other stores untouched
 
 
 if __name__ == "__main__":

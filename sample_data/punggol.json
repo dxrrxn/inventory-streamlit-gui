@@ -1,0 +1,158 @@
+[
+    {
+        "id": "F001",
+        "category": "face",
+        "name": "Water Sleeping Mask",
+        "price": 42.0,
+        "stock": 2,
+        "par": 15,
+        "brand": {
+            "name": "Laneige",
+            "country": "South Korea"
+        },
+        "detail": "All"
+    },
+    {
+        "id": "F002",
+        "category": "face",
+        "name": "Protini Polypeptide Cream",
+        "price": 92.0,
+        "stock": 3,
+        "par": 8,
+        "brand": {
+            "name": "Drunk Elephant",
+            "country": "USA"
+        },
+        "detail": "Dry"
+    },
+    {
+        "id": "F003",
+        "category": "face",
+        "name": "C-Firma Fresh Day Serum",
+        "price": 118.0,
+        "stock": 3,
+        "par": 8,
+        "brand": {
+            "name": "Drunk Elephant",
+            "country": "USA"
+        },
+        "detail": "Normal"
+    },
+    {
+        "id": "M001",
+        "category": "makeup",
+        "name": "Pro Filt'r Soft Matte Foundation",
+        "price": 58.0,
+        "stock": 12,
+        "par": 20,
+        "brand": {
+            "name": "Fenty Beauty",
+            "country": "USA"
+        },
+        "detail": "240"
+    },
+    {
+        "id": "M002",
+        "category": "makeup",
+        "name": "Soft Pinch Liquid Blush",
+        "price": 36.0,
+        "stock": 6,
+        "par": 10,
+        "brand": {
+            "name": "Rare Beauty",
+            "country": "USA"
+        },
+        "detail": "Joy"
+    },
+    {
+        "id": "H001",
+        "category": "hair",
+        "name": "No. 3 Hair Perfector",
+        "price": 42.0,
+        "stock": 10,
+        "par": 12,
+        "brand": {
+            "name": "Olaplex",
+            "country": "USA"
+        },
+        "detail": "All"
+    },
+    {
+        "id": "H002",
+        "category": "hair",
+        "name": "Curl Shampoo",
+        "price": 38.0,
+        "stock": 9,
+        "par": 10,
+        "brand": {
+            "name": "OUAI",
+            "country": "USA"
+        },
+        "detail": "Curly"
+    },
+    {
+        "id": "B001",
+        "category": "body",
+        "name": "Brazilian Crush Cheirosa 62 Mist",
+        "price": 39.0,
+        "stock": 20,
+        "par": 15,
+        "brand": {
+            "name": "Sol de Janeiro",
+            "country": "USA"
+        },
+        "detail": 90.0
+    },
+    {
+        "id": "B003",
+        "category": "body",
+        "name": "Bum Bum Body Firmeza Oil",
+        "price": 72.0,
+        "stock": 4,
+        "par": 6,
+        "brand": {
+            "name": "Sol de Janeiro",
+            "country": "USA"
+        },
+        "detail": 100.0
+    },
+    {
+        "id": "F004",
+        "category": "face",
+        "name": "Lip Sleeping Mask",
+        "price": 32.0,
+        "stock": 20,
+        "par": 20,
+        "brand": {
+            "name": "Laneige",
+            "country": "South Korea"
+        },
+        "detail": "All"
+    },
+    {
+        "id": "F102",
+        "category": "face",
+        "name": "Watermelon Glow Niacinamide Dew Drops",
+        "price": 52.0,
+        "stock": 4,
+        "par": 10,
+        "brand": {
+            "name": "Glow Recipe",
+            "country": "USA"
+        },
+        "detail": "All"
+    },
+    {
+        "id": "H102",
+        "category": "hair",
+        "name": "No. 4 Bond Maintenance Shampoo",
+        "price": 42.0,
+        "stock": 15,
+        "par": 12,
+        "brand": {
+            "name": "Olaplex",
+            "country": "USA"
+        },
+        "detail": "All"
+    }
+]

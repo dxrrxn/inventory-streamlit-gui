@@ -1,43 +1,21 @@
-"""Tests for the Streamlit GUI, using a fake Streamlit (no browser needed).
+"""Tests for the inventory pages of the Streamlit GUI, using a fake Streamlit (no browser).
 
-Each test copies inventory.json to a temporary folder, so the real file is never changed.
+Each test logs in as amy, who works at the Kovan store. Kovan has no saved file yet,
+so it starts from a temporary copy of the sample inventory.json.
 """
 import json
 import os
-import shutil
-import tempfile
-import unittest
 from types import SimpleNamespace
 
-from fake_streamlit import FakeStreamlit, RerunRequested
-from json_inventory_store import JsonInventoryStore
-from streamlit_app import InventoryGui, APP_DIR
+from app_test_case import AppTestCase
 
 
-class GuiTestCase(unittest.TestCase):
+class GuiTestCase(AppTestCase):
 
     def setUp(self):
-        self.folder = tempfile.mkdtemp()
-        self.path = os.path.join(self.folder, "inventory.json")
-        shutil.copy(os.path.join(APP_DIR, "inventory.json"), self.path)
-        self.state = {}
-
-    def tearDown(self):
-        shutil.rmtree(self.folder)
-
-    def show(self, page, inputs=None, clicks=()):
-        """Draw one page, like one Streamlit run. Returns the fake and whether it asked to rerun."""
-        ui = FakeStreamlit(inputs={"page": page, **(inputs or {})}, clicks=clicks,
-                           session_state=self.state)
-        try:
-            InventoryGui(ui, JsonInventoryStore(self.path)).run()
-            rerun = False
-        except RerunRequested:
-            rerun = True
-        return ui, rerun
-
-    def inventory(self):
-        return self.state["inventory"]
+        super().setUp()
+        self.add_accounts()
+        self.log_in("amy")
 
 
 class TestProductsPage(GuiTestCase):
@@ -78,7 +56,7 @@ class TestAddProduct(GuiTestCase):
         self.assertTrue(product.is_below_par())
         # The brand object is shared with Fenty's other products, not copied.
         self.assertIs(product.get_brand(), self.inventory().find_product("M001").get_brand())
-        self.assertTrue(self.state["unsaved"])
+        self.assertEqual(self.state["unsaved"], {"Kovan"})
 
     def test_new_brand_and_body_size(self):
         self.show("Add product", {"add_category": "body", "add_id": "B010", "add_name": "Body Lotion",
@@ -150,8 +128,8 @@ class TestRestockList(GuiTestCase):
         self.assertEqual([(r["ID"], r["Stock"], r["PAR"], r["Order"]) for r in dior],
                          [("B002", 6, 8, 2), ("M003", 11, 12, 1)])
         file_name, csv_text = ui.texts("download")[0]
-        self.assertEqual(file_name, "restock_list.csv")
-        self.assertIn("Rare Beauty,M002,Soft Pinch Liquid Blush,Makeup,Joy,3,10,7", csv_text)
+        self.assertEqual(file_name, "restock_kovan.csv")
+        self.assertIn("Kovan,Rare Beauty,M002,Soft Pinch Liquid Blush,Makeup,Joy,3,10,7", csv_text)
 
     def test_mark_as_restocked_needs_the_tick_box(self):
         self.show("Restock list", clicks={"restock_button"})
@@ -174,7 +152,7 @@ class TestOrder(GuiTestCase):
         self.assertEqual(metrics["Subtotal"], "$331.00")       # 215 + 2 x 58
         self.assertEqual(metrics["Discount"], "BulkDiscount")
         self.assertEqual(metrics["Total"], "$311.00")
-        self.assertFalse(self.state["unsaved"])                # an order doesn't change the inventory
+        self.assertEqual(self.state["unsaved"], set())          # an order doesn't change the inventory
 
 
 class TestImportAndSave(GuiTestCase):
@@ -193,10 +171,10 @@ class TestImportAndSave(GuiTestCase):
 
     def test_save_writes_the_json_file(self):
         self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 3}, clicks={"stock_button"})
-        self.assertTrue(self.state["unsaved"])
+        self.assertEqual(self.state["unsaved"], {"Kovan"})
         self.show("Products", clicks={"save"})
-        self.assertFalse(self.state["unsaved"])
-        with open(self.path) as file:
+        self.assertEqual(self.state["unsaved"], set())
+        with open(os.path.join(self.folder, "stores", "kovan.json")) as file:
             saved = {item["id"]: item for item in json.load(file)}
         self.assertEqual(saved["F001"]["stock"], 3)
         self.assertEqual(saved["F001"]["par"], 15)
@@ -204,4 +182,5 @@ class TestImportAndSave(GuiTestCase):
 
 
 if __name__ == "__main__":
+    import unittest
     unittest.main()
