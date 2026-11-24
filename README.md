@@ -49,6 +49,16 @@ The restock list is grouped by brand, so each brand's order can be placed in one
 go. It can be downloaded as a CSV file, and **Mark as restocked** sets every listed
 product back to its PAR level when the delivery arrives.
 
+## Confirming an order
+
+**Confirm order** on the Create order page treats the order as a sale: each line's
+quantity is taken off that product's stock. It is all or nothing. If the store
+doesn't have enough of any product (counting a product added on two lines
+together), the page says which, and the button stays off until the order is
+changed. Products that drop below PAR go on the restock list, and the store is
+marked as having unsaved changes, so click **Save inventory** afterwards.
+**Clear order** throws the order away without changing any stock.
+
 ## Daily leftover stock
 
 At closing time, staff open **Daily stock** and click **Record closing stock**.
@@ -70,10 +80,10 @@ one product against its PAR level. Each store has its own history.
 | Restock list | Products below PAR, grouped by brand, with the amount to order | 8 |
 | Daily stock | Record the closing stock; view any day, the change since the day before, and a chart | - |
 | Add product | Pick a category, brand (existing or new), PAR level and the category's detail | 2 |
-| Update stock & PAR | Set a new stock level and PAR level | 4 |
-| Remove product | Needs a tick to confirm | 3 |
-| Search product | By ID, name or brand; shows the detail, PAR and a tip for staff | 5 |
-| Create order | Add lines, pick a discount, see subtotal and total | 6 |
+| Update stock & PAR | Pick category → brand → product, then set its stock and PAR level | 4 |
+| Remove product | Pick category → brand → product; needs a tick to confirm | 3 |
+| Search product | Pick category → brand → product (or type an ID, name or brand); shows the detail, PAR and a tip for staff | 5 |
+| Create order | Pick category → brand → product and a quantity for each line, pick a discount, see subtotal and total; **Confirm order** takes the items off the stock | 6 |
 | Import from CSV | Upload a file or use `products.csv` | 7 |
 | **Save inventory** (sidebar) | Saves this store (the master's Overview has **Save all stores**) | 9 |
 
@@ -162,6 +172,7 @@ python3 -m unittest discover -s tests
 | `test_gui.py` | every inventory page, with a fake Streamlit (`fake_streamlit.py`) |
 | `test_login.py` | first-time setup, login, log out, which stores each account can open, the overview and Manage staff |
 | `test_accounts.py` | password hashing, master/employee rules, saving the accounts |
+| `test_confirm_order.py` | confirming an order: stock taken off, all or nothing |
 | `test_daily_stock.py` | the daily snapshot, saving one record per day, and the Daily stock page |
 | `test_storage.py` | JSON and MongoDB storage, with a fake database (`fake_mongo.py`) |
 

@@ -198,7 +198,7 @@ class TestGuiWithMongoDB(AppTestCase):
         self.log_in("amy")
         ui, _ = self.show("Products")
         self.assertIn("Storage: MongoDB (test_db)", ui.texts("caption"))
-        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 1}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {**self.pick("stock", "F001"), "stock_F001": 1}, clicks={"stock_button"})
         _, rerun = self.show("Products", clicks={"save"})
         self.assertTrue(rerun)
         self.assertEqual(self.state["flash"], "Kovan: 12 products saved to MongoDB.")

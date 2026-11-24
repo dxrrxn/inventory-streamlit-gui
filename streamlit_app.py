@@ -105,15 +105,6 @@ class InventoryGui:
             self.__ui.info(branches[name].get_load_message())
         return branches[name]
 
-    def __product_label(self, product_id: str) -> str:
-        product = self.__inventory.find_product(product_id)
-        if product is None:
-            return product_id
-        return f"{product_id} - {product.get_brand().get_name()} {product.get_name()}"
-
-    def __product_ids(self) -> list[str]:
-        return [product.get_product_id() for product in self.__inventory.get_products()]
-
     # ---------- page layout ----------
 
     def run(self) -> None:
@@ -481,17 +472,34 @@ class InventoryGui:
     # ---------- 3. update stock / 4. remove ----------
 
     def __pick_product(self, key: str) -> Product | None:
-        ids = self.__product_ids()
-        if not ids:
-            self.__ui.info("Inventory is empty.")
+        """Choose a product in three steps: category, then brand, then the product itself.
+        Each list only shows what is in this store, so there is nothing to type."""
+        ui = self.__ui
+        products = self.__inventory.get_products()
+        if not products:
+            ui.info("Inventory is empty.")
             return None
-        chosen = self.__ui.selectbox("Product", ids, key=key, format_func=self.__product_label)
+        categories = [category for category in CATEGORY_NAMES
+                      if any(product.CATEGORY == category for product in products)]
+        first, second, third = ui.columns(3)
+        category = first.selectbox("Category", categories, key=f"{key}_category",
+                                   format_func=CATEGORY_NAMES.get)
+        in_category = [product for product in products if product.CATEGORY == category]
+        brands = sorted({product.get_brand().get_name() for product in in_category}, key=str.lower)
+        # The keys include the earlier choices, so each list remembers its own selection.
+        brand = second.selectbox("Brand", brands, key=f"{key}_brand_{category}")
+        choices = sorted((product for product in in_category if product.get_brand().get_name() == brand),
+                         key=lambda product: product.get_name().lower())
+        names = {product.get_product_id(): f"{product.get_name()} ({product.get_detail_text()})"
+                 for product in choices}
+        chosen = third.selectbox("Product", list(names), key=f"{key}_product_{category}_{brand}",
+                                 format_func=names.get)
         return self.__inventory.find_product(chosen)
 
     def __update_stock(self) -> None:
         ui = self.__ui
         ui.subheader("Update stock & PAR")
-        product = self.__pick_product("stock_product")
+        product = self.__pick_product("stock")
         if product is None:
             return
         product_id = product.get_product_id()
@@ -512,7 +520,7 @@ class InventoryGui:
     def __remove(self) -> None:
         ui = self.__ui
         ui.subheader("Remove product")
-        product = self.__pick_product("remove_product")
+        product = self.__pick_product("remove")
         if product is None:
             return
         sure = ui.checkbox(f"Yes, remove {product.get_name()}",
@@ -526,24 +534,29 @@ class InventoryGui:
     def __search(self) -> None:
         ui = self.__ui
         ui.subheader("Search product")
-        text = ui.text_input("Product ID, name or brand", key="search_text",
-                             placeholder="e.g. F001, foundation or Dior").strip()
-        if not text:
+        product = self.__pick_product("search")
+        if product is None:
             return
-        product = self.__inventory.find_product(text)
-        matches = [product] if product is not None else [
-            p for p in self.__inventory.get_products()
-            if text.lower() in p.get_name().lower() or text.lower() in p.get_brand().get_name().lower()]
-        if not matches:
-            ui.warning("Product not found.")
-            return
-        if len(matches) > 1:
-            ui.success(f"{len(matches)} products found")
-            ui.dataframe([self.__row(match) for match in matches], hide_index=True)
-            return
-        product = matches[0]
+        self.__show_details(product)
+        with ui.expander("Or search by ID, name or brand"):
+            text = ui.text_input("Product ID, name or brand", key="search_text",
+                                 placeholder="e.g. F001, foundation or Dior").strip()
+            if not text:
+                return
+            found = self.__inventory.find_product(text)
+            matches = [found] if found is not None else [
+                p for p in self.__inventory.get_products()
+                if text.lower() in p.get_name().lower() or text.lower() in p.get_brand().get_name().lower()]
+            if not matches:
+                ui.warning("Product not found.")
+            else:
+                ui.success(f"{len(matches)} product(s) found")
+                ui.dataframe([self.__row(match) for match in matches], hide_index=True)
+
+    def __show_details(self, product: Product) -> None:
         brand = product.get_brand()
-        details = [("Name", product.get_name()),
+        details = [("ID", product.get_product_id()),
+                   ("Name", product.get_name()),
                    ("Brand", brand.get_name() + (f" ({brand.get_country()})" if brand.get_country() else "")),
                    ("Category", product.CATEGORY_NAME),
                    (product.get_detail_label(), product.get_detail_text()),
@@ -552,8 +565,7 @@ class InventoryGui:
                    ("Restock", f"Below PAR: order {product.get_restock_quantity()}"
                     if product.is_below_par() else "At or above PAR"),
                    ("Tip", product.get_care_tip())]       # POLYMORPHISM: each category's own tip
-        ui.success(f"Found {product.get_product_id()}")
-        ui.dataframe([{"Detail": label, "Value": value} for label, value in details], hide_index=True)
+        self.__ui.dataframe([{"Detail": label, "Value": value} for label, value in details], hide_index=True)
 
     # ---------- 6. create order ----------
 
@@ -563,13 +575,13 @@ class InventoryGui:
         store = self.__branch.get_name()             # each store builds its own order
         ui.subheader("Create order")
         order_id = ui.text_input("Order ID", value="O001", key="order_id").strip() or "O001"
-        ids = self.__product_ids()
-        if ids:
+        product = self.__pick_product("order")          # category, then brand, then product
+        if product is not None:
             first, second = ui.columns(2)
-            chosen = first.selectbox("Product", ids, key="order_product", format_func=self.__product_label)
-            quantity = int(second.number_input("Quantity", min_value=1, value=1, step=1, key="order_qty"))
+            quantity = int(first.number_input("Quantity", min_value=1, value=1, step=1, key="order_qty"))
+            second.metric("In stock", product.get_stock())
             if ui.button("Add to order", key="order_add"):
-                all_lines[store] = all_lines.get(store, []) + [(chosen, quantity)]
+                all_lines[store] = all_lines.get(store, []) + [(product.get_product_id(), quantity)]
 
         # COMPOSITION: the Order creates its own OrderLines from the chosen products.
         labels = [label for label, _ in DISCOUNT_OPTIONS.values()]
@@ -585,14 +597,34 @@ class InventoryGui:
         if not lines:
             ui.info("No items yet. Choose a product and click Add to order.")
             return
-        ui.dataframe([{"ID": line.get_product().get_product_id(), "Name": line.get_product().get_name(),
+        ui.dataframe([{"ID": line.get_product().get_product_id(),
+                       "Brand": line.get_product().get_brand().get_name(),
+                       "Name": line.get_product().get_name(),
                        "Qty": line.get_quantity(), "Unit price": f"${line.get_product().get_price():.2f}",
                        "Subtotal": f"${line.calculate_subtotal():.2f}"} for line in lines], hide_index=True)
         first, second, third = ui.columns(3)
         first.metric("Subtotal", f"${order.calculate_subtotal():.2f}")
         second.metric("Discount", type(order.get_discount()).__name__)
         third.metric("Total", f"${order.calculate_total():.2f}")
-        if ui.button("Clear order", key="order_clear"):
+        problems = order.get_stock_problems()
+        for problem in problems:
+            ui.warning(problem)
+        first, second = ui.columns(2)
+        if first.button("Confirm order", key="order_confirm", type="primary", disabled=bool(problems)):
+            try:
+                order.confirm()                      # takes the quantities off the stock
+            except ValueError as error:
+                ui.error(str(error))
+                return
+            all_lines[store] = []
+            units = sum(line.get_quantity() for line in lines)
+            message = f"Order {order_id} confirmed: {units} item(s) taken off the stock."
+            below = sorted({line.get_product().get_name() for line in lines
+                            if line.get_product().is_below_par()})
+            if below:
+                message += " Now below PAR (on the restock list): " + ", ".join(below) + "."
+            self.__finish(message)                   # the store now has unsaved changes
+        if second.button("Clear order", key="order_clear"):
             all_lines[store] = []
             self.__finish("Order cleared.", changed=False)
 

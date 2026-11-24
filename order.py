@@ -51,6 +51,32 @@ class Order:
         """Total after discount. The strategy decides the discount, not the Order."""
         return self.__discount.apply(self.calculate_subtotal())
 
+    def get_stock_problems(self) -> list[str]:
+        """Products the store doesn't have enough of. A product added on two lines
+        counts once, with the quantities added together. [] means the order can go ahead."""
+        needed: dict[str, int] = {}
+        products: dict[str, Product] = {}
+        for order_line in self.__order_lines:
+            product = order_line.get_product()
+            product_id = product.get_product_id()
+            needed[product_id] = needed.get(product_id, 0) + order_line.get_quantity()
+            products[product_id] = product
+        return [f"Only {products[pid].get_stock()} {products[pid].get_name()} left, "
+                f"but the order needs {quantity}."
+                for pid, quantity in needed.items() if quantity > products[pid].get_stock()]
+
+    def confirm(self) -> None:
+        """The sale goes through: take each line's quantity off its product's stock.
+        All or nothing: if any product is short, nothing changes and ValueError explains why."""
+        if not self.__order_lines:
+            raise ValueError("The order has no items.")
+        problems = self.get_stock_problems()
+        if problems:
+            raise ValueError(" ".join(problems))
+        for order_line in self.__order_lines:
+            product = order_line.get_product()
+            product.update_stock(product.get_stock() - order_line.get_quantity())
+
     def display_order(self) -> None:
         print(f"Order {self.__order_id}")
         if not self.__order_lines:

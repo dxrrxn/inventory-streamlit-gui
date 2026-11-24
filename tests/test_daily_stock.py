@@ -117,7 +117,7 @@ class TestDailyStockPage(AppTestCase):
         _, rerun = self.show("Daily stock", {"daily_day": YESTERDAY}, clicks={"daily_record"})
         self.assertTrue(rerun)
         self.assertIn("Closing stock for", self.state["flash"])
-        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 10}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {**self.pick("stock", "F001"), "stock_F001": 10}, clicks={"stock_button"})
         self.show("Daily stock", {"daily_day": TODAY}, clicks={"daily_record"})
 
         ui, _ = self.show("Daily stock")                                   # newest day shown first
@@ -139,7 +139,7 @@ class TestDailyStockPage(AppTestCase):
 
     def test_recording_a_day_again_needs_the_tick_box(self):
         self.show("Daily stock", {"daily_day": TODAY}, clicks={"daily_record"})
-        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 1}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {**self.pick("stock", "F001"), "stock_F001": 1}, clicks={"stock_button"})
         self.show("Daily stock", {"daily_day": TODAY}, clicks={"daily_record"})
         history = self.factory.history_store("Kovan").load()
         self.assertEqual(history[0].stock_of("F001"), 18)                 # not replaced without the tick

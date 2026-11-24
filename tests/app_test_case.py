@@ -1,6 +1,7 @@
 """Shared set-up for the GUI and storage tests: a temporary app folder with a copy
 of the sample inventory.json, a master and two employee accounts, and fast
 password hashing (the real app uses 200,000 rounds; the tests use 1,000)."""
+import json
 import os
 import shutil
 import tempfile
@@ -64,6 +65,15 @@ class AppTestCase(unittest.TestCase):
         except RerunRequested:
             rerun = True
         return ui, rerun
+
+    def pick(self, prefix: str, product_id: str) -> dict:
+        """The answers for the Category, Brand and Product boxes that choose this product
+        (looked up in the sample inventory.json the stores start from)."""
+        with open(os.path.join(self.folder, "inventory.json")) as file:
+            item = next(item for item in json.load(file) if item["id"] == product_id)
+        category, brand = item["category"], item["brand"]["name"]
+        return {f"{prefix}_category": category, f"{prefix}_brand_{category}": brand,
+                f"{prefix}_product_{category}_{brand}": product_id}
 
     def branch(self, name: str = "Kovan"):
         return self.state["branches"][name]

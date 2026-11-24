@@ -83,34 +83,43 @@ class TestAddProduct(GuiTestCase):
 class TestStockAndRemove(GuiTestCase):
 
     def test_update_stock_and_par(self):
-        self.show("Update stock & PAR", {"stock_product": "B003", "stock_B003": 4, "par_B003": 12},
+        self.show("Update stock & PAR", {**self.pick("stock", "B003"), "stock_B003": 4, "par_B003": 12},
                   clicks={"stock_button"})
         product = self.inventory().find_product("B003")
         self.assertEqual((product.get_stock(), product.get_par_level()), (4, 12))
         self.assertIn("Still below PAR: order 8.", self.state["flash"])
 
     def test_remove_needs_the_tick_box(self):
-        self.show("Remove product", {"remove_product": "H002"}, clicks={"remove_button"})
+        self.show("Remove product", {**self.pick("remove", "H002")}, clicks={"remove_button"})
         self.assertIsNotNone(self.inventory().find_product("H002"))
-        self.show("Remove product", {"remove_product": "H002", "remove_sure_H002": True},
+        self.show("Remove product", {**self.pick("remove", "H002"), "remove_sure_H002": True},
                   clicks={"remove_button"})
         self.assertIsNone(self.inventory().find_product("H002"))
 
 
 class TestSearch(GuiTestCase):
 
-    def test_by_id_shows_the_category_detail_and_tip(self):
-        ui, _ = self.show("Search product", {"search_text": "f002"})
+    def test_pick_category_then_brand_then_product(self):
+        ui, _ = self.show("Search product", self.pick("search", "F002"))
         details = {row["Detail"]: row["Value"] for row in ui.texts("dataframe")[0]}
+        self.assertEqual(details["ID"], "F002")
         self.assertEqual(details["Skin type"], "Dry")
         self.assertEqual(details["Brand"], "Drunk Elephant (USA)")
         self.assertEqual(details["Stock"], "4 (PAR 8)")
         self.assertEqual(details["Restock"], "Below PAR: order 4")
         self.assertIn("dry skin", details["Tip"])
 
-    def test_by_brand_or_name_lists_matches(self):
+    def test_lists_only_offer_what_matches_the_earlier_choice(self):
+        ui, _ = self.show("Search product", {"search_category": "body", "search_brand_body": "Dior"})
+        details = {row["Detail"]: row["Value"] for row in ui.texts("dataframe")[0]}
+        self.assertEqual(details["ID"], "B002")                 # Dior's only body product
+        ui, _ = self.show("Search product", {"search_category": "hair"})
+        details = {row["Detail"]: row["Value"] for row in ui.texts("dataframe")[0]}
+        self.assertEqual(details["Brand"], "Olaplex (USA)")     # brands are listed A-Z: Olaplex, OUAI
+
+    def test_text_search_is_still_there(self):
         ui, _ = self.show("Search product", {"search_text": "dior"})
-        self.assertEqual([r["ID"] for r in ui.texts("dataframe")[0]], ["M003", "B002"])
+        self.assertEqual([r["ID"] for r in ui.texts("dataframe")[1]], ["M003", "B002"])
         ui, _ = self.show("Search product", {"search_text": "X999"})
         self.assertIn("Product not found.", ui.texts("warning"))
 
@@ -144,15 +153,37 @@ class TestRestockList(GuiTestCase):
 class TestOrder(GuiTestCase):
 
     def test_builds_an_order_and_applies_the_chosen_discount(self):
-        self.show("Create order", {"order_product": "B002", "order_qty": 1}, clicks={"order_add"})
-        ui, _ = self.show("Create order", {"order_product": "M001", "order_qty": 2,
+        self.show("Create order", {**self.pick("order", "B002"), "order_qty": 1}, clicks={"order_add"})
+        ui, _ = self.show("Create order", {**self.pick("order", "M001"), "order_qty": 2,
                                            "order_discount": "$20 off orders of $200 or more"},
                           clicks={"order_add"})
         metrics = dict(ui.texts("metric"))
         self.assertEqual(metrics["Subtotal"], "$331.00")       # 215 + 2 x 58
         self.assertEqual(metrics["Discount"], "BulkDiscount")
         self.assertEqual(metrics["Total"], "$311.00")
+        lines = ui.texts("dataframe")[0]
+        self.assertEqual([(line["Brand"], line["Name"], line["Qty"]) for line in lines],
+                         [("Dior", "Miss Dior Eau de Parfum", 1),
+                          ("Fenty Beauty", "Pro Filt'r Soft Matte Foundation", 2)])
         self.assertEqual(self.state["unsaved"], set())          # an order doesn't change the inventory
+
+
+    def test_confirm_takes_the_order_off_the_stock(self):
+        self.show("Create order", {**self.pick("order", "M002"), "order_qty": 2}, clicks={"order_add"})
+        _, rerun = self.show("Create order", clicks={"order_confirm"})
+        self.assertTrue(rerun)
+        self.assertEqual(self.inventory().find_product("M002").get_stock(), 1)          # 3 - 2
+        self.assertEqual(self.state["order_lines"]["Kovan"], [])                       # order cleared
+        self.assertEqual(self.state["unsaved"], {"Kovan"})                             # needs saving
+        self.assertIn("Order O001 confirmed: 2 item(s) taken off the stock.", self.state["flash"])
+        self.assertIn("Now below PAR (on the restock list): Soft Pinch Liquid Blush.", self.state["flash"])
+
+    def test_confirm_is_blocked_when_stock_is_short(self):
+        self.show("Create order", {**self.pick("order", "B003"), "order_qty": 5}, clicks={"order_add"})
+        ui, rerun = self.show("Create order", clicks={"order_confirm"})
+        self.assertFalse(rerun)                                                         # button disabled
+        self.assertIn("Only 2 Bum Bum Body Firmeza Oil left, but the order needs 5.", ui.texts("warning"))
+        self.assertEqual(self.inventory().find_product("B003").get_stock(), 2)
 
 
 class TestImportAndSave(GuiTestCase):
@@ -170,7 +201,7 @@ class TestImportAndSave(GuiTestCase):
         self.assertIs(product.get_brand(), self.inventory().find_product("B002").get_brand())
 
     def test_save_writes_the_json_file(self):
-        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 3}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {**self.pick("stock", "F001"), "stock_F001": 3}, clicks={"stock_button"})
         self.assertEqual(self.state["unsaved"], {"Kovan"})
         self.show("Products", clicks={"save"})
         self.assertEqual(self.state["unsaved"], set())

@@ -39,7 +39,7 @@ class TestSetupAndLogin(AppTestCase):
     def test_log_out(self):
         self.add_accounts()
         self.log_in("amy")
-        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 1}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {**self.pick("stock", "F001"), "stock_F001": 1}, clicks={"stock_button"})
         self.show("Products", clicks={"logout"})
         self.assertNotIn("user", self.state)
         self.assertEqual(self.state["branches"], {})                  # unsaved changes discarded
@@ -61,7 +61,7 @@ class TestStoreAccess(AppTestCase):
 
     def test_stores_are_separate(self):
         self.log_in("amy")
-        self.show("Update stock & PAR", {"stock_product": "F001", "stock_F001": 1}, clicks={"stock_button"})
+        self.show("Update stock & PAR", {**self.pick("stock", "F001"), "stock_F001": 1}, clicks={"stock_button"})
         self.show("Products", clicks={"save"})
         self.log_in("ben")
         self.show("Products")
@@ -83,9 +83,9 @@ class TestStoreAccess(AppTestCase):
 
     def test_master_can_open_any_store_and_save_all(self):
         self.log_in("boss")
-        self.show("Update stock & PAR", {"branch": "Hougang", "stock_product": "F001", "stock_F001": 2},
+        self.show("Update stock & PAR", {"branch": "Hougang", **self.pick("stock", "F001"), "stock_F001": 2},
                   clicks={"stock_button"})
-        self.show("Update stock & PAR", {"branch": "Serangoon", "stock_product": "F001", "stock_F001": 3},
+        self.show("Update stock & PAR", {"branch": "Serangoon", **self.pick("stock", "F001"), "stock_F001": 3},
                   clicks={"stock_button"})
         self.assertEqual(self.state["unsaved"], {"Hougang", "Serangoon"})
         self.show("Overview", {"branch": "All stores"}, clicks={"save"})
