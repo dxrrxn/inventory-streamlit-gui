@@ -22,8 +22,28 @@ and the functions in `file_handler.py`.
 | **Save inventory** button in the sidebar | 8. Save inventory |
 
 Changes are kept while the browser tab is open. Click **Save inventory** to
-write them to `inventory.json`; the sidebar warns you when there are unsaved
-changes.
+write them to `inventory.json` or MongoDB; the sidebar shows which one is used
+and warns you when there are unsaved changes.
+
+## Storing the inventory in MongoDB (optional)
+
+By default the products are kept in `inventory.json`. To keep them in a MongoDB
+Atlas database instead:
+
+1. In Atlas, create a free cluster (or use an existing one), a database user, and
+   allow your IP address under **Network Access**.
+2. Copy `.env.example` to `.env` and put your connection string in `MONGODB_URI`.
+   Write each line as `KEY=value`, with no spaces or quotes.
+3. Run the app. The sidebar shows **Storage: MongoDB (inventory_lab)**.
+
+The first time, the database is empty, so the app starts from `inventory.json`.
+Click **Save inventory** to copy the products into MongoDB. After that they are
+loaded from the `products` collection, one document per product.
+
+If MongoDB can't be reached (wrong password, IP not allowed, no internet), the
+app says why and uses `inventory.json`, so it still starts. `.env` is in
+`.gitignore` and `.dockerignore`, so the password never reaches GitHub or the
+Docker image.
 
 ## Running it
 
@@ -41,10 +61,11 @@ with `python3 main.py`.
 
 ```bash
 docker build -t inventory-gui .
-docker run --rm -p 8501:8501 inventory-gui
+docker run --rm -p 8501:8501 --env-file .env inventory-gui
 ```
 
-Then open http://localhost:8501. The build runs the tests first.
+Then open http://localhost:8501. The build runs the tests first. Leave out
+`--env-file .env` to use `inventory.json` inside the container.
 
 ## Tests
 
@@ -53,7 +74,9 @@ python3 -m unittest discover -s tests
 ```
 
 `tests/test_gui.py` tests every page with a fake Streamlit (`tests/fake_streamlit.py`),
-so no browser is needed. Each test works on a temporary copy of `inventory.json`.
+so no browser is needed, and `tests/test_storage.py` tests the JSON and MongoDB
+storage with a fake database (`tests/fake_mongo.py`). Each test works on a
+temporary copy of `inventory.json`, and no test connects to the real database.
 The other files in `tests/` are the lab's own tests for the patterns and error handling.
 
 ## Project structure
@@ -70,5 +93,9 @@ discount_strategy.py  Strategy pattern: NoDiscount, PercentageDiscount, BulkDisc
 student_discount.py   StudentDiscount
 order.py, order_line.py, supplier.py, inventory.py
 file_handler.py       JSON load/save and CSV import
+inventory_store.py    InventoryStore interface (load / save)
+json_inventory_store.py   keeps the products in inventory.json
+mongo_inventory_store.py  keeps the products in MongoDB
+store_factory.py      Factory pattern: picks JSON or MongoDB from .env
 tests/                unit tests
 ```

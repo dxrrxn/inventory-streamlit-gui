@@ -10,6 +10,7 @@ import unittest
 from types import SimpleNamespace
 
 from fake_streamlit import FakeStreamlit, RerunRequested
+from json_inventory_store import JsonInventoryStore
 from streamlit_app import InventoryGui, APP_DIR
 
 
@@ -29,7 +30,7 @@ class GuiTestCase(unittest.TestCase):
         ui = FakeStreamlit(inputs={"page": page, **(inputs or {})}, clicks=clicks,
                            session_state=self.state)
         try:
-            InventoryGui(ui, self.path).run()
+            InventoryGui(ui, JsonInventoryStore(self.path)).run()
             rerun = False
         except RerunRequested:
             rerun = True

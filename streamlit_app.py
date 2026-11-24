@@ -5,7 +5,8 @@ Run with:  streamlit run streamlit_app.py
 
 The GUI only replaces the terminal menu in main.py. It reuses the lab's classes
 unchanged: Inventory, ProductFactory, Order, the DiscountStrategy classes and the
-functions in file_handler.py.
+functions in file_handler.py. StoreFactory decides whether the products are kept in
+inventory.json or in MongoDB (see .env.example).
 """
 from __future__ import annotations
 
@@ -15,12 +16,14 @@ import tempfile
 from contextlib import redirect_stdout
 
 from can_be_shipped import CanBeShipped
-from file_handler import load_inventory, save_inventory, load_products
+from file_handler import load_products
 from inventory import Inventory
+from inventory_store import InventoryStore
 from main import DISCOUNT_OPTIONS
 from order import Order
 from product import Product
 from product_factory import ProductFactory
+from store_factory import StoreFactory
 from supplier import Supplier
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,23 +37,28 @@ class InventoryGui:
     click, so the Inventory and the order being built are kept in session_state.
 
     The Streamlit module is passed in as `ui` (dependency injection), so the tests
-    can use a fake one instead of a browser.
+    can use a fake one instead of a browser. AGGREGATION: the InventoryStore is
+    created outside (by StoreFactory, or by the tests) and passed in.
     """
 
     PAGES = ("Products", "Add product", "Update stock", "Remove product",
              "Search product", "Create order", "Import from CSV")
 
-    def __init__(self, ui, inventory_path: str = INVENTORY_PATH):
+    def __init__(self, ui, store: InventoryStore | None = None):
         self.__ui = ui
-        self.__inventory_path = inventory_path
         state = ui.session_state
         if "inventory" not in state:
+            warning = ""
+            if store is None:
+                store, warning = StoreFactory.from_env(INVENTORY_PATH)
             inventory = Inventory()
-            messages = self.__captured(load_inventory, inventory, inventory_path)
+            message = store.load(inventory)
+            state["store"] = store
             state["inventory"] = inventory
             state["order_lines"] = []          # (product_id, quantity) pairs
             state["unsaved"] = False
-            state["flash"] = messages
+            state["flash"] = "\n".join(text for text in (warning, message) if text)
+        self.__store: InventoryStore = state["store"]
         self.__inventory: Inventory = state["inventory"]
 
     @staticmethod
@@ -87,12 +95,15 @@ class InventoryGui:
 
         page = ui.sidebar.radio("Menu", self.PAGES, key="page")
         ui.sidebar.divider()
+        ui.sidebar.caption(f"Storage: {self.__store.name}")
         if ui.session_state.get("unsaved"):
             ui.sidebar.warning("You have unsaved changes.")
         if ui.sidebar.button("Save inventory", key="save"):
-            save_inventory(self.__inventory, self.__inventory_path)
-            ui.session_state["unsaved"] = False
-            self.__finish(f"Inventory saved to {os.path.basename(self.__inventory_path)}.", changed=False)
+            saved, message = self.__store.save(self.__inventory)   # JSON or MongoDB: same call
+            if saved:
+                ui.session_state["unsaved"] = False
+                self.__finish(message, changed=False)
+            ui.sidebar.error(message)
 
         {"Products": self.__products, "Add product": self.__add, "Update stock": self.__update_stock,
          "Remove product": self.__remove, "Search product": self.__search,
