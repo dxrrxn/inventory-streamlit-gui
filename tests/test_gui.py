@@ -27,8 +27,8 @@ class TestProductsPage(GuiTestCase):
         self.assertEqual(len(rows), 12)
         self.assertEqual(rows["M001"]["Detail"], "Shade: 240")
         self.assertEqual(rows["B002"]["Detail"], "Size (ml): 100")
-        self.assertEqual(rows["F002"]["Status"], "Below PAR: order 4")     # stock 4, PAR 8
-        self.assertEqual(rows["F001"]["Status"], "OK")
+        self.assertEqual(rows["F002"]["Status"], "● Below PAR · order 4")   # stock 4, PAR 8
+        self.assertEqual(rows["F001"]["Status"], "○ OK")
 
     def test_filters_by_category_brand_and_below_par(self):
         ui, _ = self.show("Products", {"filter_category": ["body"]})
@@ -131,7 +131,7 @@ class TestRestockList(GuiTestCase):
         metrics = dict(ui.texts("metric"))
         self.assertEqual(metrics["Products to restock"], 7)
         self.assertEqual(metrics["Units to order"], 24)          # 4+1+7+1+5+2+4
-        brands = [text.split("**")[1] for text in ui.texts("markdown")]
+        brands = [text.split("**")[1] for text in ui.texts("markdown") if text.startswith("**")]
         self.assertEqual(brands, ["Dior", "Drunk Elephant", "OUAI", "Rare Beauty", "Sol de Janeiro"])
         dior = ui.texts("dataframe")[0]
         self.assertEqual([(r["ID"], r["Stock"], r["PAR"], r["Order"]) for r in dior],

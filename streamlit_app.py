@@ -31,6 +31,7 @@ from order import Order
 from product import Product, DEFAULT_PAR_LEVEL
 from product_factory import ProductFactory
 from store_factory import StoreFactory
+from theme import Theme
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PRODUCTS_CSV_PATH = os.path.join(APP_DIR, "products.csv")
@@ -110,36 +111,44 @@ class InventoryGui:
     def run(self) -> None:
         ui = self.__ui
         state = ui.session_state
-        ui.set_page_config(page_title="Sephora Inventory Tracker", layout="wide")
-        ui.title("Sephora Inventory Tracker")
+        ui.set_page_config(page_title="Sephora Inventory", layout="wide")
+        ui.markdown(Theme.CSS, unsafe_allow_html=True)
         flash = state.pop("flash", "")
-        if flash:
-            ui.info(flash)
+
+        def top(right: str) -> None:
+            """The black banner, then any message left by the last click."""
+            ui.markdown(Theme.banner(right), unsafe_allow_html=True)
+            if flash:
+                ui.info(flash)
+
         if self.__accounts is None:
+            top("")
             ui.error(f"The staff accounts could not be read, so nobody can log in: "
                      f"{state.get('accounts_error')}")
             return
         account_gui = AccountGui(ui, self.__accounts)
         if not self.__accounts.has_master():
+            top("First-time setup")
             account_gui.setup()
             return
         user = state.get("user")
         if user is None:
+            top("Staff portal")
             account_gui.login()
             return
 
-        ui.sidebar.write(f"Logged in: **{user.get_username()}**")
-        ui.sidebar.caption(user.describe())
+        ui.sidebar.markdown(Theme.user_card(user.get_username(), user.describe()), unsafe_allow_html=True)
         allowed = [name for name in BRANCH_NAMES if user.can_access(name)]   # POLYMORPHISM
         if user.is_master():                       # POLYMORPHISM: each account answers for itself
             store = ui.sidebar.selectbox("Store", [ALL_STORES] + allowed, key="branch")
         else:
             store = allowed[0]
-            ui.sidebar.write(f"Store: **{store}**")
         if store == ALL_STORES:
             page = ui.sidebar.radio("Menu", self.MASTER_PAGES, key="master_page")
         else:
             page = ui.sidebar.radio("Menu", self.PAGES, key="page")
+        top(f"{store} · {user.get_username()}")
+        if store != ALL_STORES:
             self.__branch = self.__open_branch(store)
             self.__inventory = self.__branch.get_inventory()
         ui.sidebar.divider()
@@ -153,7 +162,6 @@ class InventoryGui:
         if store == ALL_STORES:
             {"Overview": self.__overview, "Manage staff": account_gui.manage_staff}[page]()
             return
-        ui.header(store)
         {"Products": self.__products, "Restock list": self.__restock, "Daily stock": self.__daily,
          "Add product": self.__add,
          "Update stock & PAR": self.__update_stock,
@@ -247,8 +255,7 @@ class InventoryGui:
                 "Detail": f"{product.get_detail_label()}: {product.get_detail_text()}",
                 "Price": f"${product.get_price():.2f}", "Stock": product.get_stock(),
                 "PAR": product.get_par_level(),
-                "Status": (f"Below PAR: order {product.get_restock_quantity()}"
-                           if product.is_below_par() else "OK")}
+                "Status": Theme.status(product.is_below_par(), product.get_restock_quantity())}
 
     # ---------- restock list ----------
 

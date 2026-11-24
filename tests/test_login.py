@@ -47,6 +47,19 @@ class TestSetupAndLogin(AppTestCase):
         self.assertIn("Staff login", ui.texts("subheader"))
 
 
+class TestTheme(AppTestCase):
+
+    def test_names_are_escaped_in_the_banner_and_user_card(self):
+        from theme import Theme
+        self.assertNotIn("<script>", Theme.banner("<script>alert(1)</script>"))
+        self.assertNotIn("<b>", Theme.user_card("<b>amy</b>", "Kovan staff"))
+
+    def test_login_page_has_the_banner(self):
+        self.add_accounts()
+        ui, _ = self.show()
+        self.assertIn("Staff portal", self.banner(ui))
+
+
 class TestStoreAccess(AppTestCase):
 
     def setUp(self):
@@ -56,7 +69,7 @@ class TestStoreAccess(AppTestCase):
     def test_employee_only_sees_their_store(self):
         self.log_in("ben")
         ui, _ = self.show("Products", {"branch": "Kovan"})           # a store they may not pick
-        self.assertIn("Punggol", ui.texts("header"))
+        self.assertIn("Punggol · ben", self.banner(ui))
         self.assertEqual(list(self.state["branches"]), ["Punggol"])
 
     def test_stores_are_separate(self):
@@ -133,4 +146,4 @@ class TestStoreAccess(AppTestCase):
         self.log_in("amy")
         ui, _ = self.show("Manage staff", {"branch": "All stores"})
         self.assertNotIn("Manage staff", ui.texts("subheader"))
-        self.assertIn("Kovan", ui.texts("header"))
+        self.assertIn("Kovan · amy", self.banner(ui))

@@ -23,6 +23,11 @@ class AccountGui:
 
     def setup(self) -> None:
         """Shown once, when there is no master account yet."""
+        _, middle, _ = self.__ui.columns([1, 1.4, 1])         # a narrow card in the middle
+        with middle:
+            self.__setup_form()
+
+    def __setup_form(self) -> None:
         ui = self.__ui
         ui.subheader("First-time setup: create the master account")
         ui.caption(f"The master can open every store and manage staff logins. "
@@ -43,8 +48,15 @@ class AccountGui:
         self.__done("Master account created. Please log in.")
 
     def login(self) -> None:
+        _, middle, _ = self.__ui.columns([1, 1.4, 1])         # a narrow card in the middle
+        with middle:
+            self.__login_form()
+
+    def __login_form(self) -> None:
         ui = self.__ui
         ui.subheader("Staff login")
+        ui.markdown('<p class="sx-login-note">Sengkang · Punggol · Hougang · Kovan · Serangoon</p>',
+                    unsafe_allow_html=True)
         username = ui.text_input("Username", key="login_user")
         password = ui.text_input("Password", type="password", key="login_password")
         if not ui.button("Log in", key="login_button", type="primary"):

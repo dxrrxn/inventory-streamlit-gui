@@ -182,6 +182,8 @@ Every test works on a temporary copy of `inventory.json`, and none connects to t
 
 ```
 streamlit_app.py      the GUI (InventoryGui class, one method per page)
+theme.py              the look: fonts, the black banner, the user card (Theme class)
+.streamlit/config.toml   Streamlit's colours: black and white
 account_gui.py        the login, first-time setup and Manage staff screens
 branch.py             Branch: one store and its Inventory; the five store names
 account.py            abstract Account (hashed password)

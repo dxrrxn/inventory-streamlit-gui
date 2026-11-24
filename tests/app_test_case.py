@@ -75,6 +75,11 @@ class AppTestCase(unittest.TestCase):
         return {f"{prefix}_category": category, f"{prefix}_brand_{category}": brand,
                 f"{prefix}_product_{category}_{brand}": product_id}
 
+    @staticmethod
+    def banner(ui) -> str:
+        """The text in the black banner at the top, e.g. "Kovan · amy"."""
+        return next(text for text in ui.texts("markdown") if 'class="sx-banner"' in text)
+
     def branch(self, name: str = "Kovan"):
         return self.state["branches"][name]
 
