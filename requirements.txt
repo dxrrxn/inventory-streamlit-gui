@@ -1,0 +1,2 @@
+# The web GUI (run with: streamlit run streamlit_app.py)
+streamlit>=1.37
