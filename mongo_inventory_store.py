@@ -3,7 +3,6 @@ from pymongo.errors import PyMongoError
 from inventory import Inventory
 from inventory_store import InventoryStore
 from product_factory import ProductFactory
-from supplier import Supplier
 
 
 class MongoInventoryStore(InventoryStore):
@@ -37,18 +36,11 @@ class MongoInventoryStore(InventoryStore):
             return (f"{message}\nMongoDB is empty, so these products came from "
                     f"{self.__first_time_source.name}. Click Save inventory to store them in MongoDB.")
 
-        suppliers: dict[str, Supplier] = {}     # products with the same supplier share one object
+        brands = inventory.get_brands()         # products of one brand share one Brand object
         loaded, skipped = 0, 0
         for document in documents:
             try:
-                s = document["supplier"]
-                if s["id"] not in suppliers:
-                    suppliers[s["id"]] = Supplier(s["id"], s["name"], s["contact_email"])
-                product = ProductFactory.create(
-                    document["type"], document["id"], document["name"], document["price"],
-                    document["stock"], suppliers[s["id"]],
-                    weight=document.get("weight", 0.0),
-                    download_size=document.get("download_size", 0.0))
+                product = ProductFactory.from_dict(document, brands)
             except (KeyError, TypeError, ValueError):
                 skipped += 1                    # a damaged document doesn't stop the others
                 continue

@@ -1,54 +1,146 @@
 [
     {
-        "id": "P001",
-        "name": "Desk Lamp",
-        "price": 25.0,
-        "stock": 10,
-        "supplier": {
-            "id": "S001",
-            "name": "Music World",
-            "contact_email": "sales@musicworld.com"
+        "id": "F001",
+        "category": "face",
+        "name": "Water Sleeping Mask",
+        "price": 42.0,
+        "stock": 18,
+        "brand": {
+            "name": "Laneige",
+            "country": "South Korea"
         },
-        "type": "physical",
-        "weight": 0.0
+        "detail": "All"
     },
     {
-        "id": "D001",
-        "name": "Photo Editor",
-        "price": 49.9,
-        "stock": 100,
-        "supplier": {
-            "id": "S001",
-            "name": "Music World",
-            "contact_email": "sales@musicworld.com"
+        "id": "F002",
+        "category": "face",
+        "name": "Protini Polypeptide Cream",
+        "price": 92.0,
+        "stock": 4,
+        "brand": {
+            "name": "Drunk Elephant",
+            "country": "USA"
         },
-        "type": "digital",
-        "download_size": 0.0
+        "detail": "Dry"
     },
     {
-        "id": "P003",
-        "name": "Monitor Stand",
-        "price": 39.5,
+        "id": "F003",
+        "category": "face",
+        "name": "C-Firma Fresh Day Serum",
+        "price": 118.0,
         "stock": 7,
-        "supplier": {
-            "id": "S001",
-            "name": "Music World",
-            "contact_email": "sales@musicworld.com"
+        "brand": {
+            "name": "Drunk Elephant",
+            "country": "USA"
         },
-        "type": "physical",
-        "weight": 0.0
+        "detail": "Normal"
     },
     {
-        "id": "P010",
-        "name": "Guitar",
-        "price": 350.0,
-        "stock": 5,
-        "supplier": {
-            "id": "S001",
-            "name": "Music World",
-            "contact_email": "sales@musicworld.com"
+        "id": "M001",
+        "category": "makeup",
+        "name": "Pro Filt'r Soft Matte Foundation",
+        "price": 58.0,
+        "stock": 25,
+        "brand": {
+            "name": "Fenty Beauty",
+            "country": "USA"
         },
-        "type": "physical",
-        "weight": 3.5
+        "detail": "240"
+    },
+    {
+        "id": "M002",
+        "category": "makeup",
+        "name": "Soft Pinch Liquid Blush",
+        "price": 36.0,
+        "stock": 3,
+        "brand": {
+            "name": "Rare Beauty",
+            "country": "USA"
+        },
+        "detail": "Joy"
+    },
+    {
+        "id": "M003",
+        "category": "makeup",
+        "name": "Rouge Dior Lipstick",
+        "price": 62.0,
+        "stock": 11,
+        "brand": {
+            "name": "Dior",
+            "country": "France"
+        },
+        "detail": "999"
+    },
+    {
+        "id": "H001",
+        "category": "hair",
+        "name": "No. 3 Hair Perfector",
+        "price": 42.0,
+        "stock": 14,
+        "brand": {
+            "name": "Olaplex",
+            "country": "USA"
+        },
+        "detail": "All"
+    },
+    {
+        "id": "H002",
+        "category": "hair",
+        "name": "Curl Shampoo",
+        "price": 38.0,
+        "stock": 5,
+        "brand": {
+            "name": "OUAI",
+            "country": "USA"
+        },
+        "detail": "Curly"
+    },
+    {
+        "id": "B001",
+        "category": "body",
+        "name": "Brazilian Crush Cheirosa 62 Mist",
+        "price": 39.0,
+        "stock": 22,
+        "brand": {
+            "name": "Sol de Janeiro",
+            "country": "USA"
+        },
+        "detail": 90.0
+    },
+    {
+        "id": "B002",
+        "category": "body",
+        "name": "Miss Dior Eau de Parfum",
+        "price": 215.0,
+        "stock": 6,
+        "brand": {
+            "name": "Dior",
+            "country": "France"
+        },
+        "detail": 100.0
+    },
+    {
+        "id": "B003",
+        "category": "body",
+        "name": "Bum Bum Body Firmeza Oil",
+        "price": 72.0,
+        "stock": 2,
+        "brand": {
+            "name": "Sol de Janeiro",
+            "country": "USA"
+        },
+        "detail": 100.0
+    },
+    {
+        "id": "F004",
+        "category": "face",
+        "name": "Lip Sleeping Mask",
+        "price": 32.0,
+        "stock": 30,
+        "brand": {
+            "name": "Laneige",
+            "country": "South Korea"
+        },
+        "detail": "All"
     }
 ]

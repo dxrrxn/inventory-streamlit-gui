@@ -42,14 +42,14 @@ class TestMongoInventoryStore(StoreTestCase):
         inventory = Inventory()
         message = store.load(inventory)
         self.assertIn("MongoDB is empty", message)
-        self.assertEqual(self.ids(inventory), ["P001", "D001", "P003", "P010"])
+        self.assertEqual(self.ids(inventory), ["F001", "F002", "F003", "M001", "M002", "M003", "H001", "H002", "B001", "B002", "B003", "F004"])
 
         saved, message = store.save(inventory)
         self.assertTrue(saved)
-        self.assertEqual(message, "4 products saved to MongoDB.")
-        self.assertEqual([doc["id"] for doc in collection.documents], ["P001", "D001", "P003", "P010"])
+        self.assertEqual(message, "12 products saved to MongoDB.")
+        self.assertEqual([doc["id"] for doc in collection.documents], ["F001", "F002", "F003", "M001", "M002", "M003", "H001", "H002", "B001", "B002", "B003", "F004"])
 
-    def test_reload_from_mongodb_keeps_types_and_shared_supplier(self):
+    def test_reload_from_mongodb_keeps_categories_and_shared_brand(self):
         collection = FakeCollection("products")
         first = MongoInventoryStore(collection, "test_db", first_time_source=self.json_store)
         inventory = Inventory()
@@ -58,11 +58,11 @@ class TestMongoInventoryStore(StoreTestCase):
 
         again = Inventory()
         message = MongoInventoryStore(collection, "test_db").load(again)
-        self.assertEqual(message, "4 products loaded from MongoDB.")
-        guitar = again.find_product("P010")
-        self.assertEqual(type(guitar).__name__, "PhysicalProduct")
-        self.assertEqual(guitar.get_weight(), 3.5)
-        self.assertIs(guitar.get_supplier(), again.find_product("D001").get_supplier())
+        self.assertEqual(message, "12 products loaded from MongoDB.")
+        perfume = again.find_product("B002")
+        self.assertEqual(type(perfume).__name__, "BodyProduct")
+        self.assertEqual(perfume.get_detail(), 100.0)
+        self.assertIs(perfume.get_brand(), again.find_product("M003").get_brand())   # both Dior
 
     def test_save_updates_changed_and_deletes_removed_products(self):
         collection = FakeCollection("products")
@@ -70,16 +70,17 @@ class TestMongoInventoryStore(StoreTestCase):
         inventory = Inventory()
         store.load(inventory)
         store.save(inventory)
-        inventory.find_product("P001").update_stock(99)
-        inventory.remove_product("P003")
+        inventory.find_product("F001").update_stock(99)
+        inventory.remove_product("H002")
         store.save(inventory)
         by_id = {doc["id"]: doc for doc in collection.documents}
-        self.assertEqual(sorted(by_id), ["D001", "P001", "P010"])
-        self.assertEqual(by_id["P001"]["stock"], 99)
+        self.assertEqual(len(by_id), 11)
+        self.assertNotIn("H002", by_id)
+        self.assertEqual(by_id["F001"]["stock"], 99)
 
     def test_damaged_document_is_skipped(self):
         collection = FakeCollection("products")
-        collection.insert_one({"id": "X1", "name": "Broken"})          # no type, price or supplier
+        collection.insert_one({"id": "X1", "name": "Broken"})          # no category, price or brand
         message = MongoInventoryStore(collection, "test_db").load(Inventory())
         self.assertEqual(message, "0 products loaded from MongoDB. 1 damaged record(s) skipped.")
 
@@ -149,8 +150,8 @@ class TestGuiWithMongoDB(StoreTestCase):
         ui = FakeStreamlit(inputs={"page": "Products"}, clicks={"save"}, session_state=state)
         with self.assertRaises(RerunRequested):          # the page redraws after saving
             InventoryGui(ui).run()
-        self.assertEqual(len(collection.documents), 4)
-        self.assertEqual(state["flash"], "4 products saved to MongoDB.")
+        self.assertEqual(len(collection.documents), 12)
+        self.assertEqual(state["flash"], "12 products saved to MongoDB.")
 
 
 if __name__ == "__main__":

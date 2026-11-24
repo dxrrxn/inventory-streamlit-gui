@@ -1,5 +1,7 @@
-from supplier import Supplier
-from can_be_shipped import CanBeShipped
+from brand import Brand
+from body_product import BodyProduct
+from face_product import FaceProduct
+from hair_product import HairProduct
 from inventory import Inventory, LINE
 from order import Order
 from product_factory import ProductFactory
@@ -42,7 +44,7 @@ def read_non_empty(prompt: str) -> str:
 
 
 def read_number(prompt: str) -> float:
-    """Keep asking until the user types a non-negative number (weight, size)."""
+    """Keep asking until the user types a non-negative number (e.g. a size in ml)."""
     while True:
         try:
             value = float(input(prompt))
@@ -75,15 +77,41 @@ def read_quantity(prompt: str) -> int:
             print("Please enter a whole number.")
 
 
-def read_product_type() -> str:
-    """Return the product type name the ProductFactory understands."""
+def read_category() -> str:
+    """Return the category name the ProductFactory understands."""
+    categories = list(ProductFactory.CATEGORIES.items())
+    for number, (_, product_class) in enumerate(categories, start=1):
+        print(f"{number}. {product_class.CATEGORY_NAME}")
     while True:
-        choice = input("Product type (1 = Physical, 2 = Digital): ").strip()
-        if choice == "1":
-            return "physical"
-        if choice == "2":
-            return "digital"
-        print("Please enter 1 or 2.")
+        choice = input("Category: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(categories):
+            return categories[int(choice) - 1][0]
+        print(f"Please enter a number from 1 to {len(categories)}.")
+
+
+def read_choice(label: str, options: tuple[str, ...]) -> str:
+    """Pick one of a fixed list, e.g. a skin type."""
+    print(f"{label}: " + ", ".join(f"{number}. {option}" for number, option in enumerate(options, start=1)))
+    while True:
+        choice = input(f"{label}: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(options):
+            return options[int(choice) - 1]
+        print(f"Please enter a number from 1 to {len(options)}.")
+
+
+def read_detail(category: str):
+    """Ask for the category's extra detail (skin type, shade, hair type or size)."""
+    if category == "face":
+        return read_choice("Skin type", FaceProduct.SKIN_TYPES)
+    if category == "hair":
+        return read_choice("Hair type", HairProduct.HAIR_TYPES)
+    if category == "body":
+        while True:
+            size = read_number("Size (ml): ")
+            if size > 0:
+                return size
+            print("Size must be greater than 0 ml.")
+    return read_non_empty("Shade: ")
 
 
 def read_discount() -> DiscountStrategy:
@@ -97,26 +125,17 @@ def read_discount() -> DiscountStrategy:
         print(f"Please enter a number from 1 to {len(DISCOUNT_OPTIONS)}.")
 
 
-# ---------- Supplier lookup ----------
+# ---------- Brand lookup ----------
 
-def find_supplier(inventory: Inventory, supplier_id: str) -> Supplier | None:
-    """Reuse a Supplier object that an existing product already refers to."""
-    for product in inventory.get_products():
-        supplier = product.get_supplier()
-        if supplier.get_supplier_id().upper() == supplier_id.upper():
-            return supplier
-    return None
-
-
-def read_supplier(inventory: Inventory) -> Supplier:
-    supplier_id = read_non_empty("Supplier ID: ")
-    supplier = find_supplier(inventory, supplier_id)
-    if supplier is not None:
-        print(f"Using existing supplier: {supplier.get_name()}")
-        return supplier
-    name = read_non_empty("Supplier Name: ")
-    email = read_non_empty("Supplier Email: ")
-    return Supplier(supplier_id, name, email)
+def read_brand(inventory: Inventory) -> Brand:
+    """Reuse the Brand object that the brand's other products already refer to."""
+    name = read_non_empty("Brand: ")
+    brand = inventory.get_brands().get(name.lower())
+    if brand is not None:
+        print(f"Using existing brand: {brand.get_name()}")
+        return brand
+    country = input("Brand country (optional): ").strip()
+    return Brand(name, country)
 
 
 # ---------- Menu actions ----------
@@ -127,21 +146,14 @@ def add_product(inventory: Inventory) -> None:
     if inventory.find_product(product_id) is not None:
         print("A product with this ID already exists.")
         return
-    product_type = read_product_type()
+    category = read_category()
     name = read_non_empty("Product Name: ")
+    brand = read_brand(inventory)
     price = get_positive_float("Price: ")
     stock = read_stock("Stock Quantity: ")
-    supplier = read_supplier(inventory)
+    detail = read_detail(category)
 
-    weight = 0.0
-    download_size = 0.0
-    if product_type == "physical":
-        weight = read_number("Weight (kg): ")
-    else:
-        download_size = read_number("Download Size (MB): ")
-
-    product = ProductFactory.create(product_type, product_id, name, price, stock, supplier,
-                                    weight=weight, download_size=download_size)
+    product = ProductFactory.create(category, product_id, name, price, stock, brand, detail)
     inventory.add_product(product)
     print("Product added successfully!")
 
@@ -177,10 +189,10 @@ def search_product(inventory: Inventory) -> None:
     print("Product Found")
     print(LINE)
     product.display_information()
-    print(product.get_fulfilment_info())
-    if isinstance(product, CanBeShipped):
-        print(f"Shipping Cost: ${product.calculate_shipping_cost():.2f}")
-    product.get_supplier().display_information()
+    print(product.get_care_tip())             # each category gives its own tip (polymorphism)
+    if product.is_low_stock():
+        print("Low stock: please reorder.")
+    product.get_brand().display_information()
     print(LINE)
 
 
@@ -206,9 +218,7 @@ def create_order(inventory: Inventory) -> None:
 def import_products(inventory: Inventory) -> None:
     print("Load Products from CSV")
     path = input(f"CSV file (leave blank for {PRODUCTS_CSV}): ").strip() or PRODUCTS_CSV
-    print("Every product in the file will use this supplier.")
-    supplier = read_supplier(inventory)
-    load_products(path, inventory, supplier)
+    load_products(path, inventory)
 
 
 def print_menu() -> None:
@@ -259,7 +269,7 @@ def run_menu(inventory: Inventory) -> None:
 
 def main() -> None:
     print("=" * 40)
-    print("INVENTORY MANAGEMENT SYSTEM")
+    print("SEPHORA INVENTORY TRACKER")
     print("=" * 40)
     inventory = Inventory()
     load_inventory(inventory)

@@ -1,3 +1,4 @@
+from brand import Brand
 from product import Product
 
 LINE = "-" * 60
@@ -42,6 +43,15 @@ class Inventory:
         for product in self.__products:
             product.display_information()      # each product decides how it displays (polymorphism)
         print(LINE)
+
+    def get_brands(self) -> dict[str, Brand]:
+        """The brands of the products in the inventory, by lower-case name.
+        Each Brand object appears once, because its products share it."""
+        brands: dict[str, Brand] = {}
+        for product in self.__products:
+            brand = product.get_brand()
+            brands.setdefault(brand.get_name().lower(), brand)
+        return brands
 
     def get_products(self) -> list[Product]:
         """Return a copy of the product list so outside code can't change the inventory's list."""

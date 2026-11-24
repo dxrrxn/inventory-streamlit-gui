@@ -18,7 +18,7 @@ class StoreFactory:
     inventory.json file is used, so the app always starts.
     """
 
-    DEFAULT_DATABASE = "inventory_lab"
+    DEFAULT_DATABASE = "sephora_inventory"
     COLLECTION = "products"
     TIMEOUT_MS = 5000              # give up after 5 seconds instead of hanging
 

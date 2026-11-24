@@ -1,6 +1,8 @@
-product_type,product_id,name,price,stock_quantity
-physical,P001,Desk Lamp,25.00,10
-digital,D001,Photo Editor,49.90,100
-service,S001,Installation,30.00,5
-physical,P002,Office Chair,abc,3
-physical,P003,Monitor Stand,39.50,7
+category,product_id,name,brand,price,stock_quantity,detail
+face,F010,Water Cream,Tatcha,98.00,12,Dry
+makeup,M010,Gloss Bomb Universal Lip Luminizer,Fenty Beauty,30.00,20,Fenty Glow
+hair,H010,No. 4 Bond Maintenance Shampoo,Olaplex,42.00,9,All
+body,B010,Bum Bum Cream,Sol de Janeiro,65.00,3,240
+nails,N001,Nail Polish,Sephora Collection,12.00,30,Red
+face,F011,Hydrating Toner,Glow Recipe,abc,8,Normal
+makeup,M011,Concealer,Rare Beauty,32.00,15,

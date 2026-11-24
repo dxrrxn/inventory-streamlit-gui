@@ -3,8 +3,9 @@ import inspect
 import unittest
 
 import order as order_module
-from supplier import Supplier
-from physical_product import PhysicalProduct
+from brand import Brand
+from face_product import FaceProduct
+from makeup_product import MakeupProduct
 from order import Order
 from discount_strategy import DiscountStrategy, NoDiscount, PercentageDiscount, BulkDiscount
 from student_discount import StudentDiscount
@@ -12,10 +13,10 @@ from student_discount import StudentDiscount
 
 def make_order(discount: DiscountStrategy | None = None) -> Order:
     """An order whose lines add up to 250 (2 x 100 + 1 x 50)."""
-    supplier = Supplier("S001", "Music World", "sales@musicworld.com")
+    brand = Brand("Dior", "France")
     order = Order("O001", discount)
-    order.add_order_line(PhysicalProduct("P001", "Speaker", 100, 10, supplier, 2), 2)
-    order.add_order_line(PhysicalProduct("P002", "Cable", 50, 10, supplier, 0.1), 1)
+    order.add_order_line(FaceProduct("F001", "Serum", 100, 10, brand, "Dry"), 2)
+    order.add_order_line(MakeupProduct("M001", "Lipstick", 50, 10, brand, "999"), 1)
     return order
 
 

@@ -1,12 +1,12 @@
 """
-Streamlit web GUI for the Week 11 Inventory Management System.
+Streamlit web GUI for the Sephora Inventory Tracker.
 
 Run with:  streamlit run streamlit_app.py
 
-The GUI only replaces the terminal menu in main.py. It reuses the lab's classes
-unchanged: Inventory, ProductFactory, Order, the DiscountStrategy classes and the
-functions in file_handler.py. StoreFactory decides whether the products are kept in
-inventory.json or in MongoDB (see .env.example).
+The GUI replaces the terminal menu in main.py and uses the same classes: Inventory,
+ProductFactory (Face, Makeup, Hair and Body products), Brand, Order, the
+DiscountStrategy classes and file_handler.py. StoreFactory decides whether the
+products are kept in inventory.json or in MongoDB (see .env.example).
 """
 from __future__ import annotations
 
@@ -15,21 +15,24 @@ import os
 import tempfile
 from contextlib import redirect_stdout
 
-from can_be_shipped import CanBeShipped
-from file_handler import load_products
+from brand import Brand
+from face_product import FaceProduct
+from file_handler import load_products, CSV_COLUMNS
+from hair_product import HairProduct
 from inventory import Inventory
 from inventory_store import InventoryStore
 from main import DISCOUNT_OPTIONS
 from order import Order
-from product import Product
+from product import Product, LOW_STOCK_LEVEL
 from product_factory import ProductFactory
 from store_factory import StoreFactory
-from supplier import Supplier
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 INVENTORY_PATH = os.path.join(APP_DIR, "inventory.json")
 PRODUCTS_CSV_PATH = os.path.join(APP_DIR, "products.csv")
-NEW_SUPPLIER = "+ New supplier"
+NEW_BRAND = "+ New brand"
+CATEGORY_NAMES = {category: product_class.CATEGORY_NAME
+                  for category, product_class in ProductFactory.CATEGORIES.items()}
 
 
 class InventoryGui:
@@ -78,7 +81,9 @@ class InventoryGui:
 
     def __product_label(self, product_id: str) -> str:
         product = self.__inventory.find_product(product_id)
-        return f"{product_id} - {product.get_name()}" if product else product_id
+        if product is None:
+            return product_id
+        return f"{product_id} - {product.get_brand().get_name()} {product.get_name()}"
 
     def __product_ids(self) -> list[str]:
         return [product.get_product_id() for product in self.__inventory.get_products()]
@@ -87,8 +92,8 @@ class InventoryGui:
 
     def run(self) -> None:
         ui = self.__ui
-        ui.set_page_config(page_title="Inventory Management System", layout="wide")
-        ui.title("Inventory Management System")
+        ui.set_page_config(page_title="Sephora Inventory Tracker", layout="wide")
+        ui.title("Sephora Inventory Tracker")
         flash = ui.session_state.pop("flash", "")
         if flash:
             ui.info(flash)
@@ -119,77 +124,88 @@ class InventoryGui:
             ui.info("Inventory is empty.")
             return
         first, second = ui.columns(2)
-        first.metric("Products", len(products))
-        second.metric("Stock value", f"${sum(p.get_price() * p.get_stock() for p in products):,.2f}")
-        ui.dataframe([self.__row(product) for product in products], hide_index=True)
+        categories = first.multiselect("Category", list(CATEGORY_NAMES), key="filter_category",
+                                       format_func=CATEGORY_NAMES.get, placeholder="All categories")
+        brand_names = sorted(brand.get_name() for brand in self.__inventory.get_brands().values())
+        brands = second.multiselect("Brand", brand_names, key="filter_brand", placeholder="All brands")
+        low_only = ui.checkbox(f"Only low stock ({LOW_STOCK_LEVEL} or fewer)", key="filter_low")
+        shown = [product for product in products
+                 if (not categories or product.CATEGORY in categories)
+                 and (not brands or product.get_brand().get_name() in brands)
+                 and (not low_only or product.is_low_stock())]
+
+        first, second, third = ui.columns(3)
+        first.metric("Products", len(shown))
+        second.metric("Stock value", f"${sum(p.get_price() * p.get_stock() for p in shown):,.2f}")
+        third.metric("Low stock", sum(product.is_low_stock() for product in shown))
+        if shown:
+            ui.dataframe([self.__row(product) for product in shown], hide_index=True)
+        else:
+            ui.info("No products match these filters.")
 
     @staticmethod
     def __row(product: Product) -> dict:
-        """One table row. POLYMORPHISM: get_fulfilment_info() differs by product type."""
-        shipping = (f"${product.calculate_shipping_cost():.2f}"
-                    if isinstance(product, CanBeShipped) else "-")
-        return {"ID": product.get_product_id(), "Name": product.get_name(),
-                "Type": type(product).__name__.replace("Product", ""),
+        """One table row. POLYMORPHISM: each category gives its own detail label and value."""
+        return {"ID": product.get_product_id(), "Brand": product.get_brand().get_name(),
+                "Name": product.get_name(), "Category": product.CATEGORY_NAME,
+                "Detail": f"{product.get_detail_label()}: {product.get_detail_text()}",
                 "Price": f"${product.get_price():.2f}", "Stock": product.get_stock(),
-                "Supplier": product.get_supplier().get_name(), "Shipping": shipping,
-                "Fulfilment": product.get_fulfilment_info()}
+                "Status": "Low stock" if product.is_low_stock() else "OK"}
 
     # ---------- 2. add product ----------
 
-    def __choose_supplier(self, key: str) -> Supplier | None:
-        """Pick an existing supplier (shared object, like main.find_supplier) or type a new one."""
+    def __choose_brand(self) -> Brand | None:
+        """Pick an existing brand (its products share one Brand object) or type a new one."""
         ui = self.__ui
-        suppliers: dict[str, Supplier] = {}
-        for product in self.__inventory.get_products():
-            supplier = product.get_supplier()
-            suppliers.setdefault(supplier.get_supplier_id(), supplier)
-        options = [f"{sid} - {s.get_name()}" for sid, s in suppliers.items()] + [NEW_SUPPLIER]
-        choice = ui.selectbox("Supplier", options, key=f"{key}_supplier")
-        if choice != NEW_SUPPLIER:
-            return suppliers[choice.split(" - ")[0]]
-        supplier_id = ui.text_input("Supplier ID", key=f"{key}_sid").strip()
-        name = ui.text_input("Supplier name", key=f"{key}_sname").strip()
-        email = ui.text_input("Supplier email", key=f"{key}_semail").strip()
-        if not (supplier_id and name and email):
+        brands = self.__inventory.get_brands()
+        options = sorted(brand.get_name() for brand in brands.values()) + [NEW_BRAND]
+        choice = ui.selectbox("Brand", options, key="add_brand")
+        if choice != NEW_BRAND:
+            return brands[choice.lower()]
+        name = ui.text_input("Brand name", key="add_brand_name").strip()
+        country = ui.text_input("Brand country (optional)", key="add_brand_country").strip()
+        if not name:
             return None
-        for existing_id, supplier in suppliers.items():
-            if existing_id.upper() == supplier_id.upper():
-                return supplier                    # reuse it instead of making a copy
-        return Supplier(supplier_id, name, email)
+        return brands.get(name.lower()) or Brand(name, country)   # reuse it if it already exists
+
+    def __detail_input(self, category: str):
+        """The category's own extra detail: skin type, shade, hair type or size."""
+        ui = self.__ui
+        if category == "face":
+            return ui.selectbox("Skin type", FaceProduct.SKIN_TYPES, key="add_skin")
+        if category == "hair":
+            return ui.selectbox("Hair type", HairProduct.HAIR_TYPES, key="add_hair")
+        if category == "body":
+            return ui.number_input("Size (ml)", min_value=1.0, value=100.0, step=10.0, key="add_size")
+        return ui.text_input("Shade", key="add_shade", placeholder="e.g. 240 or Ruby Woo").strip()
 
     def __add(self) -> None:
         ui = self.__ui
         ui.subheader("Add new product")
-        product_type = ui.radio("Product type", ["physical", "digital"], key="add_type",
-                                format_func=str.capitalize, horizontal=True)
-        product_id = ui.text_input("Product ID", key="add_id").strip()
+        category = ui.radio("Category", list(CATEGORY_NAMES), key="add_category",
+                            format_func=CATEGORY_NAMES.get, horizontal=True)
+        product_id = ui.text_input("Product ID", key="add_id", placeholder="e.g. F010").strip()
         name = ui.text_input("Product name", key="add_name").strip()
-        price = ui.number_input("Price ($)", min_value=0.01, value=1.00, step=0.50, key="add_price")
+        brand = self.__choose_brand()
+        price = ui.number_input("Price ($)", min_value=0.01, value=10.00, step=1.00, key="add_price")
         stock = int(ui.number_input("Stock quantity", min_value=0, value=0, step=1, key="add_stock"))
-        if product_type == "physical":
-            weight = ui.number_input("Weight (kg)", min_value=0.0, value=0.0, step=0.1, key="add_weight")
-            size = 0.0
-        else:
-            weight = 0.0
-            size = ui.number_input("Download size (MB)", min_value=0.0, value=0.0, step=10.0, key="add_size")
-        supplier = self.__choose_supplier("add")
+        detail = self.__detail_input(category)
         if not ui.button("Add product", key="add_button", type="primary"):
             return
         if not product_id or not name:
             ui.error("Product ID and name cannot be empty.")
         elif self.__inventory.find_product(product_id) is not None:
             ui.error("A product with this ID already exists.")
-        elif supplier is None:
-            ui.error("Fill in the supplier ID, name and email.")
+        elif brand is None:
+            ui.error("Fill in the brand name.")
         else:
             try:
-                product = ProductFactory.create(product_type, product_id, name, price, stock,
-                                                supplier, weight=weight, download_size=size)
+                product = ProductFactory.create(category, product_id, name, price, stock, brand, detail)
             except ValueError as error:          # the product classes explain what is wrong
                 ui.error(str(error))
                 return
             self.__inventory.add_product(product)
-            self.__finish(f"{name} added successfully.")
+            self.__finish(f"{brand.get_name()} {name} added successfully.")
 
     # ---------- 3. update stock / 4. remove ----------
 
@@ -231,23 +247,31 @@ class InventoryGui:
     def __search(self) -> None:
         ui = self.__ui
         ui.subheader("Search product")
-        product_id = ui.text_input("Product ID", key="search_id", placeholder="e.g. P001").strip()
-        if not product_id:
+        text = ui.text_input("Product ID, name or brand", key="search_text",
+                             placeholder="e.g. F001, foundation or Dior").strip()
+        if not text:
             return
-        product = self.__inventory.find_product(product_id)
-        if product is None:
+        product = self.__inventory.find_product(text)
+        matches = [product] if product is not None else [
+            p for p in self.__inventory.get_products()
+            if text.lower() in p.get_name().lower() or text.lower() in p.get_brand().get_name().lower()]
+        if not matches:
             ui.warning("Product not found.")
             return
-        supplier = product.get_supplier()
-        details = [("Name", product.get_name()), ("Price", f"${product.get_price():.2f}"),
-                   ("Stock", str(product.get_stock())), ("Fulfilment", product.get_fulfilment_info())]
-        if isinstance(product, CanBeShipped):     # only physical products can be shipped
-            details.append(("Weight", f"{product.get_weight():.2f} kg"))
-            details.append(("Shipping cost", f"${product.calculate_shipping_cost():.2f}"))
-        else:
-            details.append(("Download size", f"{product.get_download_size():.2f} MB"))
-        details.append(("Supplier", f"{supplier.get_name()} ({supplier.get_supplier_id()}, "
-                                    f"{supplier.get_contact_email()})"))
+        if len(matches) > 1:
+            ui.success(f"{len(matches)} products found")
+            ui.dataframe([self.__row(match) for match in matches], hide_index=True)
+            return
+        product = matches[0]
+        brand = product.get_brand()
+        details = [("Name", product.get_name()),
+                   ("Brand", brand.get_name() + (f" ({brand.get_country()})" if brand.get_country() else "")),
+                   ("Category", product.CATEGORY_NAME),
+                   (product.get_detail_label(), product.get_detail_text()),
+                   ("Price", f"${product.get_price():.2f}"),
+                   ("Stock", f"{product.get_stock()} (low stock, reorder)" if product.is_low_stock()
+                    else str(product.get_stock())),
+                   ("Tip", product.get_care_tip())]       # POLYMORPHISM: each category's own tip
         ui.success(f"Found {product.get_product_id()}")
         ui.dataframe([{"Detail": label, "Value": value} for label, value in details], hide_index=True)
 
@@ -296,24 +320,19 @@ class InventoryGui:
     def __import(self) -> None:
         ui = self.__ui
         ui.subheader("Load products from CSV")
-        ui.caption("Columns: product_type, product_id, name, price, stock_quantity. "
-                   "Bad rows are skipped and reported; good rows still load.")
+        ui.caption(f"Columns: {', '.join(CSV_COLUMNS)}. The detail is the skin type, shade, "
+                   "hair type or size in ml. Bad rows are skipped and reported; good rows still load.")
         uploaded = ui.file_uploader("CSV file (leave empty to use products.csv)", type=["csv"],
                                     key="csv_file")
-        ui.write("Every product in the file will use this supplier:")
-        supplier = self.__choose_supplier("csv")
         if not ui.button("Import products", key="csv_button", type="primary"):
             return
-        if supplier is None:
-            ui.error("Fill in the supplier ID, name and email.")
-            return
         if uploaded is None:
-            messages = self.__captured(load_products, PRODUCTS_CSV_PATH, self.__inventory, supplier)
+            messages = self.__captured(load_products, PRODUCTS_CSV_PATH, self.__inventory)
         else:
             with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as file:
                 file.write(uploaded.getvalue())
             try:
-                messages = self.__captured(load_products, file.name, self.__inventory, supplier)
+                messages = self.__captured(load_products, file.name, self.__inventory)
             finally:
                 os.remove(file.name)
         self.__finish(messages)
