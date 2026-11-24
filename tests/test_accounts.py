@@ -69,6 +69,25 @@ class TestAccounts(AccountTestCase):
         with self.assertRaises(ValueError):
             self.accounts.add_employee("cat", "staff-pass-1", "Orchard")     # not one of our stores
 
+    def test_names(self):
+        master = self.accounts.create_master("boss", "master-pass-1", "Darren Ng")
+        amy = self.accounts.add_employee("amy", "staff-pass-1", "Kovan")
+        self.assertEqual(master.get_name(), "Darren Ng")
+        self.assertEqual(amy.get_name(), "amy")                         # no name given: the username
+        self.accounts.rename("AMY", "  Amy   Tan ")
+        self.assertEqual(amy.get_name(), "Amy Tan")                     # spaces tidied
+        with self.assertRaises(ValueError):
+            self.accounts.rename("amy", "x" * 61)
+        again = AccountManager(JsonAccountStore(self.path))
+        self.assertEqual(again.find("amy").get_name(), "Amy Tan")       # saved
+
+    def test_accounts_saved_before_names_existed_still_load(self):
+        password_hash, salt = Account.hash_password("staff-pass-1")
+        with open(self.path, "w") as file:
+            json.dump([{"username": "old", "role": "employee", "password_hash": password_hash,
+                        "salt": salt, "store": "Kovan"}], file)
+        self.assertEqual(AccountManager(JsonAccountStore(self.path)).find("old").get_name(), "old")
+
     def test_reset_and_remove(self):
         self.accounts.create_master("boss", "master-pass-1")
         self.accounts.add_employee("amy", "staff-pass-1", "Kovan")

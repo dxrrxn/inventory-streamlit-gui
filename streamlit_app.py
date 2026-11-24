@@ -132,12 +132,17 @@ class InventoryGui:
             account_gui.setup()
             return
         user = state.get("user")
+        if user is not None:
+            # Use the account as it is now (e.g. renamed), and log out an account that was removed.
+            user = self.__accounts.find(user.get_username())
+            if user is None:
+                state.pop("user", None)
         if user is None:
             top("Staff portal")
             account_gui.login()
             return
 
-        ui.sidebar.markdown(Theme.user_card(user.get_username(), user.describe()), unsafe_allow_html=True)
+        ui.sidebar.markdown(Theme.user_card(user.get_name(), user.describe()), unsafe_allow_html=True)
         allowed = [name for name in BRANCH_NAMES if user.can_access(name)]   # POLYMORPHISM
         if user.is_master():                       # POLYMORPHISM: each account answers for itself
             store = ui.sidebar.selectbox("Store", [ALL_STORES] + allowed, key="branch")
@@ -147,7 +152,7 @@ class InventoryGui:
             page = ui.sidebar.radio("Menu", self.MASTER_PAGES, key="master_page")
         else:
             page = ui.sidebar.radio("Menu", self.PAGES, key="page")
-        top(f"{store} · {user.get_username()}")
+        top(f"{store} · {user.get_name()}")
         if store != ALL_STORES:
             self.__branch = self.__open_branch(store)
             self.__inventory = self.__branch.get_inventory()
@@ -373,7 +378,9 @@ class InventoryGui:
                      "-" if previous is None else f"{record.total_units() - previous.total_units():+d}")
         compared = ("the first recorded day" if previous is None
                     else f"compared with {previous.get_day():%d-%m-%Y}")
-        ui.caption(f"Recorded by {record.get_recorded_by()} at {record.get_recorded_at()[11:16]}, "
+        recorder = self.__accounts.find(record.get_recorded_by())     # show the person's name
+        recorded_by = recorder.get_name() if recorder is not None else record.get_recorded_by()
+        ui.caption(f"Recorded by {recorded_by} at {record.get_recorded_at()[11:16]}, "
                    f"{compared}.")
         ui.dataframe([{"ID": row["id"], "Brand": row["brand"], "Name": row["name"],
                        "Leftover": row["stock"], "PAR": row["par"],

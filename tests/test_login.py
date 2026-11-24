@@ -117,17 +117,41 @@ class TestStoreAccess(AppTestCase):
 
     def test_master_manages_staff(self):
         self.log_in("boss")
-        self.show("Manage staff", {"branch": "All stores", "staff_user": "cara", "staff_store": "Sengkang",
-                                   "staff_password": STAFF_PASSWORD}, clicks={"staff_add"})
+        self.show("Manage staff", {"branch": "All stores", "staff_name": "Cara  Lim", "staff_user": "cara",
+                                   "staff_store": "Sengkang", "staff_password": STAFF_PASSWORD},
+                  clicks={"staff_add"})
+        self.assertEqual(self.state["flash"], "Cara  Lim can now log in to Sengkang as cara.")
         ui, _ = self.show("Manage staff", {"branch": "All stores"})
         rows = ui.texts("dataframe")[0]
-        self.assertIn({"Username": "cara", "Store": "Sengkang"}, rows)
+        self.assertIn({"Name": "Cara Lim", "Username": "cara", "Store": "Sengkang"}, rows)
+        self.assertIn({"Name": "amy", "Username": "amy", "Store": "Kovan"}, rows)   # no name: username
         ui, _ = self.show("Manage staff", {"branch": "All stores", "staff_user": "amy",
                                            "staff_password": STAFF_PASSWORD}, clicks={"staff_add"})
         self.assertIn("The username amy is already taken.", ui.texts("error"))
         self.show("Manage staff", {"branch": "All stores", "remove_user": "cara", "remove_user_sure_cara": True},
                   clicks={"remove_user_button"})
         self.assertIsNone(self.state["accounts"].find("cara"))
+
+    def test_names_are_shown_instead_of_usernames(self):
+        self.log_in("boss")
+        self.show("Manage staff", {"branch": "All stores", "rename_user": "amy", "rename_name_amy": "Amy Tan"},
+                  clicks={"rename_button"})
+        self.assertEqual(self.state["flash"], "amy is now shown as Amy Tan.")
+        self.show("Manage staff", {"branch": "All stores", "rename_user": "boss", "rename_name_boss": "Darren Ng"},
+                  clicks={"rename_button"})
+        ui, _ = self.show("Overview", {"branch": "All stores"})
+        self.assertIn("All stores · Darren Ng", self.banner(ui))             # the master's own new name
+        ui, _ = self.show("Manage staff", {"branch": "All stores", "rename_user": "amy",
+                                           "rename_name_amy": "   "}, clicks={"rename_button"})
+        self.assertIn("Name cannot be empty.", ui.texts("error"))
+
+        self.state.clear()
+        self.show(inputs={"login_user": "amy", "login_password": STAFF_PASSWORD}, clicks={"login_button"})
+        self.assertEqual(self.state["flash"], "Welcome, Amy Tan.")
+        ui, _ = self.show("Products")
+        self.assertIn("Kovan · Amy Tan", self.banner(ui))
+        self.assertIn("Amy Tan", [t for t in ui.texts("markdown") if t.startswith('<div class="sx-user"')][0])
+        self.assertEqual(self.state["user"].get_username(), "amy")           # still logs in as amy
 
     def test_master_view_does_not_depend_on_the_class_object(self):
         """Streamlit can reload a module while a user is logged in, so the account in the
@@ -136,6 +160,7 @@ class TestStoreAccess(AppTestCase):
         class OldCopyOfMasterAccount:
             def get_username(self): return "boss"
             def describe(self): return "Master (all stores)"
+            def get_name(self): return "Boss"
             def can_access(self, name): return True
             def is_master(self): return True
         self.state["user"] = OldCopyOfMasterAccount()

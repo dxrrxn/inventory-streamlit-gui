@@ -7,8 +7,9 @@ class EmployeeAccount(Account):
 
     ROLE = "employee"
 
-    def __init__(self, username: str, password_hash: str, salt: str, branch_name: str):
-        super().__init__(username, password_hash, salt)
+    def __init__(self, username: str, password_hash: str, salt: str, branch_name: str,
+                 name: str = ""):
+        super().__init__(username, password_hash, salt, name)
         if branch_name not in BRANCH_NAMES:
             raise ValueError(f"Unknown store: {branch_name}")
         self.__branch_name: str = branch_name

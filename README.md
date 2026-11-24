@@ -16,6 +16,10 @@ staff logins.
   one store), reset passwords and remove logins.
 - **First run:** the app asks you to create the master account. After that it
   shows the login page.
+- Every account has a **username** (to log in, never changes) and a **name**
+  (e.g. "Amy Tan") that the app shows in the banner, the sidebar and Manage staff.
+  The master can change anyone's name, including their own; an account without a
+  name shows its username.
 - Passwords are never stored. Only a salted PBKDF2-SHA256 hash is kept, and a
   wrong username or password gets the same message.
 - A store that has never been saved starts from its own sample file in

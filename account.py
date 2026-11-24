@@ -4,6 +4,7 @@ import os
 from abc import ABC, abstractmethod
 
 MIN_PASSWORD_LENGTH = 8
+MAX_NAME_LENGTH = 60
 
 
 class Account(ABC):
@@ -17,13 +18,15 @@ class Account(ABC):
     ROLE = ""
     ITERATIONS = 200_000
 
-    def __init__(self, username: str, password_hash: str, salt: str):
+    def __init__(self, username: str, password_hash: str, salt: str, name: str = ""):
         username = str(username).strip()
         if not username:
             raise ValueError("Username cannot be empty.")
         self.__username: str = username
         self.__password_hash: str = password_hash
         self.__salt: str = salt
+        self.__name: str = username
+        self.set_name(name or username)       # no name given: show the username instead
 
     @classmethod
     def hash_password(cls, password: str, salt: str | None = None) -> tuple[str, str]:
@@ -35,7 +38,20 @@ class Account(ABC):
         return digest.hex(), salt
 
     def get_username(self) -> str:
+        """The login name: unique, used to log in and to identify the account."""
         return self.__username
+
+    def get_name(self) -> str:
+        """The person's name, shown on screen (e.g. "Amy Tan")."""
+        return self.__name
+
+    def set_name(self, name: str) -> None:
+        name = " ".join(str(name).split())    # trim and collapse extra spaces
+        if not name:
+            raise ValueError("Name cannot be empty.")
+        if len(name) > MAX_NAME_LENGTH:
+            raise ValueError(f"Name must be at most {MAX_NAME_LENGTH} characters.")
+        self.__name = name
 
     def check_password(self, password: str) -> bool:
         digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(self.__salt),
@@ -46,7 +62,7 @@ class Account(ABC):
         self.__password_hash, self.__salt = self.hash_password(password)
 
     def to_dict(self) -> dict:
-        return {"username": self.__username, "role": self.ROLE,
+        return {"username": self.__username, "name": self.__name, "role": self.ROLE,
                 "password_hash": self.__password_hash, "salt": self.__salt}
 
     @abstractmethod
